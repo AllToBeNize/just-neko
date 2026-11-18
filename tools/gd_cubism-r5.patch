@@ -1,0 +1,158 @@
+diff --git a/src/private/internal_cubism_renderer.cpp b/src/private/internal_cubism_renderer.cpp
+index 5359655..8bb5778 100644
+--- a/src/private/internal_cubism_renderer.cpp
++++ b/src/private/internal_cubism_renderer.cpp
+@@ -25,9 +25,9 @@ using namespace Live2D::Cubism::Framework::Rendering;
+ // ------------------------------------------------------------------ static(s)
+ // ----------------------------------------------------------- class:forward(s)
+ // ------------------------------------------------------------------- class(s)
+-CubismRenderer* CubismRenderer::Create() {
++CubismRenderer* CubismRenderer::Create(csmUint32 width, csmUint32 height) {
+     #ifdef GD_CUBISM_USE_RENDERER_2D
+-    return CSM_NEW InternalCubismRenderer2D();
++    return CSM_NEW InternalCubismRenderer2D(width, height);
+     #else
+     return CSM_NEW InternalCubismRenderer3D();
+     #endif // GD_CUBISM_USE_RENDERER_2D
+diff --git a/src/private/internal_cubism_renderer_2d.cpp b/src/private/internal_cubism_renderer_2d.cpp
+index 6dff049..732f94f 100644
+--- a/src/private/internal_cubism_renderer_2d.cpp
++++ b/src/private/internal_cubism_renderer_2d.cpp
+@@ -35,7 +35,8 @@ const Vector4 make_vector4(const Live2D::Cubism::Core::csmVector4 &src_vec4);
+ 
+ // ----------------------------------------------------------- class:forward(s)
+ // ------------------------------------------------------------------- class(s)
+-InternalCubismRenderer2D::InternalCubismRenderer2D()
++InternalCubismRenderer2D::InternalCubismRenderer2D(Csm::csmUint32 width, Csm::csmUint32 height)
++    : CubismRenderer(width, height)
+ {
+ }
+ 
+@@ -163,7 +164,7 @@ float InternalCubismRenderer2D::get_ppunit(const Csm::CubismModel *model) const
+ void InternalCubismRenderer2D::update(InternalCubismRendererResource &res, int32_t mask_viewport_size)
+ {
+     const CubismModel *model = this->GetModel();
+-    const Csm::csmInt32 *renderOrder = model->GetDrawableRenderOrders();
++    const Csm::csmInt32 *renderOrder = model->GetRenderOrders();
+     const Csm::csmInt32 *maskCount = model->GetDrawableMaskCounts();
+ 
+     this->make_ArrayMesh_prepare(
+@@ -277,7 +278,7 @@ void InternalCubismRenderer2D::update(InternalCubismRendererResource &res, int32
+ void InternalCubismRenderer2D::build_model(InternalCubismRendererResource &res, Node* target_node)
+ {
+     const CubismModel *model = this->GetModel();
+-    const Csm::csmInt32 *renderOrder = model->GetDrawableRenderOrders();
++    const Csm::csmInt32 *renderOrder = model->GetRenderOrders();
+     const Csm::csmInt32 *maskCount = model->GetDrawableMaskCounts();
+ 
+     this->make_ArrayMesh_prepare(
+@@ -392,7 +393,7 @@ void InternalCubismRenderer2D::build_model(InternalCubismRendererResource &res,
+                 mat->set_shader_parameter("channel", Vector4(0.0, 0.0, 0.0, 1.0));
+                 mat->set_shader_parameter("tex_main", res.ary_texture[model->GetDrawableTextureIndex(index)]);
+ 
+-                node->set_z_index(model->GetDrawableRenderOrders()[index]);
++                node->set_z_index(renderOrder[index]);
+                 node->set_visible(true);
+ 
+                 viewport->add_child(node);
+diff --git a/src/private/internal_cubism_renderer_2d.hpp b/src/private/internal_cubism_renderer_2d.hpp
+index 118e52e..e06f3c7 100644
+--- a/src/private/internal_cubism_renderer_2d.hpp
++++ b/src/private/internal_cubism_renderer_2d.hpp
+@@ -34,7 +34,7 @@ class InternalCubismRenderer2D : public CubismRenderer
+     friend class CubismRenderer;
+ 
+ public:
+-    InternalCubismRenderer2D();
++    InternalCubismRenderer2D(Csm::csmUint32 width, Csm::csmUint32 height);
+     virtual ~InternalCubismRenderer2D();
+ 
+ private:
+@@ -64,6 +64,8 @@ public:
+     void DoDrawModel();
+     void SaveProfile();
+     void RestoreProfile();
++    void BeforeDrawModelRenderTarget() override {}
++    void AfterDrawModelRenderTarget() override {}
+ };
+ 
+ // ------------------------------------------------------------------ method(s)
+diff --git a/src/private/internal_cubism_renderer_resource.cpp b/src/private/internal_cubism_renderer_resource.cpp
+index 56dba2a..46b4d09 100644
+--- a/src/private/internal_cubism_renderer_resource.cpp
++++ b/src/private/internal_cubism_renderer_resource.cpp
+@@ -76,11 +76,17 @@ MeshInstance2D* InternalCubismRendererResource::request_mesh_instance() {
+ 
+ ShaderMaterial* InternalCubismRendererResource::request_shader_material(const Csm::CubismModel *model, const Csm::csmInt32 index) {
+     ShaderMaterial* mat = memnew(ShaderMaterial);
++    // The Godot shaders support Cubism's legacy normal, additive and multiplicative modes.
++    const auto flags = Live2D::Cubism::Core::csmGetDrawableConstantFlags(model->GetModel())[index];
++    const auto blend = (flags & Live2D::Cubism::Core::csmBlendAdditive)
++        ? CubismRenderer::CubismBlendMode_Additive
++        : (flags & Live2D::Cubism::Core::csmBlendMultiplicative)
++            ? CubismRenderer::CubismBlendMode_Multiplicative : CubismRenderer::CubismBlendMode_Normal;
+     
+     GDCubismShader e = GD_CUBISM_SHADER_NORM_MIX;
+     if (model->GetDrawableMaskCounts()[index] == 0)
+     {
+-        switch (model->GetDrawableBlendMode(index))
++        switch (blend)
+         {
+         case CubismRenderer::CubismBlendMode_Additive:
+             e = GD_CUBISM_SHADER_NORM_ADD;
+@@ -98,7 +104,7 @@ ShaderMaterial* InternalCubismRendererResource::request_shader_material(const Cs
+     }
+     else if (model->GetDrawableInvertedMask(index) == false)
+     {
+-        switch (model->GetDrawableBlendMode(index))
++        switch (blend)
+         {
+         case CubismRenderer::CubismBlendMode_Additive:
+             e = GD_CUBISM_SHADER_MASK_ADD;
+@@ -116,7 +122,7 @@ ShaderMaterial* InternalCubismRendererResource::request_shader_material(const Cs
+     }
+     else
+     {
+-        switch (model->GetDrawableBlendMode(index))
++        switch (blend)
+         {
+         case CubismRenderer::CubismBlendMode_Additive:
+             e = GD_CUBISM_SHADER_MASK_ADD_INV;
+diff --git a/src/private/internal_cubism_user_model.cpp b/src/private/internal_cubism_user_model.cpp
+index d9e0fc5..183296a 100644
+--- a/src/private/internal_cubism_user_model.cpp
++++ b/src/private/internal_cubism_user_model.cpp
+@@ -115,7 +115,8 @@ bool InternalCubismUserModel::model_load(
+         this->motion_load();
+     }
+ 
+-    this->CreateRenderer();
++    // Godot owns the render targets for this renderer.
++    this->CreateRenderer(1, 1);
+ 
+     // Resource(Texture)
+     this->model_load_resource();
+@@ -288,11 +289,7 @@ void InternalCubismUserModel::expression_set(const char* expression_id) {
+     ACubismMotion* motion = this->_map_expression[csmString(expression_id)];
+ 
+     if(motion != nullptr) {
+-        this->_expressionManager->StartMotionPriority(
+-            motion,
+-            false,
+-            GDCubismUserModel::Priority::PRIORITY_FORCE
+-        );
++        this->_expressionManager->StartMotion(motion, false);
+     }
+ }
+ 
+@@ -317,8 +314,8 @@ CubismMotionQueueEntryHandle InternalCubismUserModel::motion_start(const char* g
+ 
+     if(motion == nullptr ) return InvalidMotionQueueEntryHandleValue;
+ 
+-    motion->IsLoop(loop);
+-    motion->IsLoopFadeIn(loop_fade_in);
++    motion->SetLoop(loop);
++    motion->SetLoopFadeIn(loop_fade_in);
+     motion->SetFinishedMotionHandler(GDCubismUserModel::on_motion_finished);
+     #ifdef CUBISM_MOTION_CUSTOMDATA
+     motion->SetFinishedMotionCustomData(custom_data);

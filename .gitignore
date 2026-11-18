@@ -1,0 +1,7 @@
+.godot/
+bin/
+obj/
+.vs/
+AI_Temp/
+/Models/
+/addons/gd_cubism/
