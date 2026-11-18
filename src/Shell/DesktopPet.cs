@@ -77,11 +77,7 @@ public partial class DesktopPet : Control, IPetBody
         var models = new ModelRouter(_settings, localModel);
 
         _pet = Characters.Create(_settings.Current.Character);
-        _pet.Name = "Pet";
-        _pet.MouseFilter = MouseFilterEnum.Stop;
-        AddChild(_pet);
-        _pet.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
-        _pet.GuiInput += OnPetInput;
+        MountAvatar(_pet, index: -1);
         _badge = new PetBadge();
         AddChild(_badge);
         _badge.Pressed += OpenProblemSettings;
@@ -103,9 +99,11 @@ public partial class DesktopPet : Control, IPetBody
         AddChild(appearance);
         appearance.Changed += ResizePet;
         _motions = new PetMotionDirector(_pet, behaviors, () => appearance.Current);
-        _pet.MotionFinished += _motions.OnMotionFinished;
+
         activities.Initialize(new PetContext(this, _motions), IsUserBusy);
-        _services = new PetServices(platform, _settings, localModel, models, _interactions, history, behaviors, appearance, activities, _pet, dataDirectory);
+        _pet.MotionFinished += _motions.OnMotionFinished;
+        _services = new PetServices(platform, _settings, localModel, models, _interactions, history, behaviors, appearance, activities, dataDirectory);
+        _services.SetAvatar(_pet);
 
         _speech = new PetSpeechBubble { Name = "PetReply" };
         AddChild(_speech);
@@ -120,7 +118,7 @@ public partial class DesktopPet : Control, IPetBody
         _settingsCenter = new SettingsCenter(_services);
         _settingsCenter.ChatPage.ConnectionVerified += OnConnectionVerified;
         _settingsCenter.PrivacyPage.HistoryCleared += ClearConversation;
-        _settingsCenter.RestartRequested += Restart;
+        _settingsCenter.CharacterPage.SwitchCharacter = SwitchCharacter;
         AddChild(_settingsCenter);
         _onboarding = new OnboardingWindow(_services);
         _onboarding.CloudRequested += () => _settingsCenter.Open(SettingsCenter.Chat);
@@ -430,11 +428,49 @@ public partial class DesktopPet : Control, IPetBody
         _motions.ClearOneShot();
     }
 
-    // 换角色后重启：从自己这里拉起一个新进程（仍在用户的桌面会话里），再退出当前进程。
-    private void Restart()
+    // ---- 换角色：原地替换角色节点，重新接好鼠标、动作、通用层，不用重启 ----
+
+    private void MountAvatar(PetAvatar avatar, int index)
     {
-        OS.CreateProcess(OS.GetExecutablePath(), OS.GetCmdlineArgs());
-        Quit();
+        avatar.Name = "Pet";
+        avatar.MouseFilter = MouseFilterEnum.Stop;
+        AddChild(avatar);
+        if (index >= 0)
+            MoveChild(avatar, index);
+        avatar.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+        avatar.GuiInput += OnPetInput;
+    }
+
+    /// <summary>换成另一个角色。返回 null 表示换好了；加载失败时保留原来的角色并返回原因。</summary>
+    private string? SwitchCharacter(string id)
+    {
+        var previous = _pet;
+        var index = previous.GetIndex();
+        var next = Characters.Create(id);
+        previous.GuiInput -= OnPetInput;
+        previous.MotionFinished -= _motions.OnMotionFinished;
+        RemoveChild(previous);
+        MountAvatar(next, index);
+        if (next is Pet.Vrm.VrmAvatar { Loaded: false } || (id.StartsWith("vrm:", StringComparison.Ordinal) && next is not Pet.Vrm.VrmAvatar))
+        {
+            // 新角色没加载出来：换回原来的。
+            next.GuiInput -= OnPetInput;
+            RemoveChild(next);
+            next.QueueFree();
+            AddChild(previous);
+            MoveChild(previous, index);
+            previous.GuiInput += OnPetInput;
+            previous.MotionFinished += _motions.OnMotionFinished;
+            return "这个角色加载失败，可能还没导入：用 Godot 编辑器打开一次项目再试。";
+        }
+
+        previous.QueueFree();
+        _pet = next;
+        _pet.MotionFinished += _motions.OnMotionFinished;
+        _motions.SetAvatar(_pet);
+        _services.SetAvatar(_pet);
+        _pet.SetMood(_speaking is null ? "neutral" : _pet.Mood);
+        return null;
     }
 
     private void Quit()

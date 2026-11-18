@@ -42,7 +42,7 @@ dotnet build
 | `core/Platform` | `IPlatformServices`：凭据存储、隐藏任务栏按钮、隐藏窗口、全屏检测、子进程跟随退出。Windows 已实现；其他平台先用通用实现（Key 只留在内存、窗口挪到屏幕外），以后补 macOS 钥匙串、Linux libsecret |
 | `src/Pet` | `PetAvatar` 渲染角色；`BehaviorCatalog` 登记行为槽；`PetMotionDirector` 按优先级决定播哪个动作（拖动 > 一次性反应 > 交互阶段 > 自主活动 > 待机） |
 | `src/Pet/Activities` | 自主活动框架：`IPetActivity` + `ActivityDirector` |
-| `src/Pet` 角色后端 | `PetAvatar` 是角色后端的基类（表情、动作、命中判断、通用层姿态），`Live2DAvatar` 和 `Vrm/VrmAvatar` 各实现一份；`Characters` 列出可选角色并按设置创建。VRM 端：`VrmExpressions` 按权重叠加 VRM 表情，`VrmPoser` 每帧改骨骼姿态（垂手、呼吸、看向、倾斜） |
+| `src/Pet` 角色后端 | `PetAvatar` 是角色后端的基类（表情、动作、命中判断、通用层姿态），`Live2DAvatar` 和 `Vrm/VrmAvatar` 各实现一份；`Characters` 列出可选角色并按设置创建，`DesktopPet.SwitchCharacter` 原地替换角色节点实现热切换。VRM 端：`VrmExpressions` 按权重叠加 VRM 表情，`VrmPoser` 每帧改骨骼姿态（垂手、呼吸、看向、倾斜） |
 | `src/Pet/Rig` | 通用层，和角色格式无关：`LookAtCursor` 看鼠标、`DragSway` 拖动晃动（弹簧阻尼）、`TextMouth` 按文字节奏对口型（以后换成按语音音量），合成 `AvatarPose`（看向、倾斜、张嘴）。`Live2DRig` 把它叠加到 Live2D 参数上：默认用标准参数，嘴型读 model3.json 的 `LipSync` 分组，不符合标准的角色在模型目录放 `rig.json` 覆盖映射 |
 | `src/Shell` | 主场景 `DesktopPet`（组装各模块、鼠标操作、窗口跟随、显示和隐藏）、`TrayIcon` 托盘、`OnboardingWindow` 首次引导、聊天窗口、气泡和头顶小标记 |
 | `src/Shell/Settings` | 设置中心 `SettingsCenter` 和六个分页；加一页就是写一个 `SettingsPage` 子类，在 `SettingsCenter` 里登记 |
@@ -78,11 +78,12 @@ dotnet build
 
 ## 角色：Live2D 和 VRM
 
-在「设置中心 → 角色」里选角色，点「立即重启」后生效。两种格式共用同一套互动、表情、看鼠标、拖动晃动和对口型。
+在「设置中心 → 角色」里选角色，选好立即切换，不用重启。两种格式共用同一套互动、表情、看鼠标、拖动晃动和对口型。
 
 - **Live2D**：模型放在 `Models/`（见下一节），表情和动作来自模型文件。
-- **VRM（3D）**：把 `.vrm` 放进 `Models/vrm/`，用 Godot 编辑器打开一次项目就会自动导入（插件 [godot-vrm](https://github.com/V-Sekai/godot-vrm)，固定在 `e15199f9`，MIT）。表情用 VRM 标准表情（开心、生气、难过、放松、惊讶，Live2D 常用的 curious / shy / sleepy 会自动映射过去），口型用 `aa`；VRM 没有动作文件，待机时手臂自然垂下、呼吸、眨眼都由程序生成。头发衣服靠模型自带的弹簧骨骼摆动。试用的示例角色是 pixiv 的 `VRM1_Constraint_Twist_Sample.vrm`（允许商用、再分发和修改），和 Live2D 模型一样不进仓库。
-- godot-vrm 对「节点约束」（袖子、关节扭转）的导入不可靠，会把袖子算回水平，所以加载时移除约束节点，由程序带着袖子跟手臂走；对普通 VRoid 模型没有影响。运行时直接加载 `.vrm`（不经编辑器导入）在这个版本的插件上还有问题，用户自己放入的角色以后再支持。
+- **VRM（3D）**：把 `.vrm` 放进 `Models/vrm/`，用 Godot 编辑器打开一次项目就会自动导入（插件 [godot-vrm](https://github.com/V-Sekai/godot-vrm)，固定在 `e15199f9`，MIT）。表情用 VRM 标准表情（开心、生气、难过、放松、惊讶，Live2D 常用的 curious / shy / sleepy 会自动映射过去），口型用 `aa`；VRM 没有动作文件，待机时手臂自然垂下、呼吸、眨眼都由程序生成。头发衣服靠模型自带的弹簧骨骼摆动。试过的示例角色：pixiv 的 `VRM1_Constraint_Twist_Sample.vrm`（允许商用、再分发和修改）和 VRM 联盟的 `Seed-san.vrm`（VRM Public License 1.0），和 Live2D 模型一样不进仓库。
+- godot-vrm 对「节点约束」（袖子、关节扭转）的导入不可靠，会把袖子算回水平，所以加载时移除约束节点，由程序带着和上臂朝向一致的骨骼（袖子、扭转骨骼）跟手臂走；对普通 VRoid 模型没有影响。
+- 运行时直接加载 `.vrm`（不经编辑器导入）在这个版本的插件上不可用：插件把骨骼改名成 Godot 人形骨骼名后，蒙皮和表情绑定还指向旧名字，编辑器导入时由 Godot 的导入流程补上，运行时没有这一步。用户自己放入的角色要等这个问题解决后再支持。
 
 ## Live2D（可选）
 

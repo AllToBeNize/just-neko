@@ -19,5 +19,17 @@ internal sealed record PetServices(
     BehaviorCatalog Behaviors,
     AppearanceStore Appearance,
     ActivityDirector Activities,
-    PetAvatar Avatar,
-    string DataDirectory);
+    string DataDirectory)
+{
+    /// <summary>当前角色。热切换角色时会换成新的对象。</summary>
+    public PetAvatar Avatar { get; private set; } = null!;
+
+    /// <summary>换了角色（设置页借此刷新动作绑定列表）。</summary>
+    public event Action? AvatarChanged;
+
+    public void SetAvatar(PetAvatar avatar)
+    {
+        Avatar = avatar;
+        AvatarChanged?.Invoke();
+    }
+}

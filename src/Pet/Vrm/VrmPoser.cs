@@ -14,7 +14,7 @@ namespace JustNeko.Pet.Vrm;
 /// </remarks>
 internal sealed class VrmPoser
 {
-    private const float ArmDown = 68f;
+    private const float ArmDown = 74f;
     private const float BreathPeriod = 4.2f;
     // 父骨骼在前，保证先改父再改子。
     private static readonly string[] Order = ["Spine", "Chest", "UpperChest", "Neck", "Head", "LeftEye", "RightEye", "LeftUpperArm", "RightUpperArm", "LeftLowerArm", "RightLowerArm"];
@@ -41,8 +41,11 @@ internal sealed class VrmPoser
             if (index < 0)
                 continue;
             var parent = skeleton.GetBoneParent(index);
+            var armDirection = RestDirection(skeleton, index);
+            // 只带走和上臂朝向一致的骨骼（袖子、扭转骨骼），挂在同一个肩膀下的其他东西（比如背包上的机械臂）不动。
             _followers[arm] = Enumerable.Range(0, skeleton.GetBoneCount())
-                .Where(bone => bone != index && parent >= 0 && skeleton.GetBoneParent(bone) == parent && !_bones.Any(known => known.Index == bone))
+                .Where(bone => bone != index && parent >= 0 && skeleton.GetBoneParent(bone) == parent && !_bones.Any(known => known.Index == bone)
+                               && RestDirection(skeleton, bone).Dot(armDirection) > 0.8f)
                 .ToList();
         }
     }
@@ -69,11 +72,10 @@ internal sealed class VrmPoser
                 "Neck" => Yaw(look.X * 12) * Pitch(-look.Y * 7) * Roll(-lean.X * 4),
                 "Head" => Yaw(look.X * 16) * Pitch(-look.Y * 10) * Roll(-lean.X * 6),
                 "LeftEye" or "RightEye" => Yaw(look.X * 10) * Pitch(-look.Y * 8),
-                // 手臂：从 T 字姿势放下来，小臂微微弯，随呼吸轻轻动。
-                "LeftUpperArm" => Roll(-ArmDown + breath * 1.5f) * Yaw(-8),
-                "RightUpperArm" => Roll(ArmDown - breath * 1.5f) * Yaw(8),
-                "LeftLowerArm" => Yaw(-12),
-                "RightLowerArm" => Yaw(12),
+                // 手臂：从 T 字姿势放下来、稍微往前收，随呼吸轻轻动；小臂绕左右轴往前弯一点（手臂垂下后再绕竖直轴转会拧成手心朝外）。
+                "LeftUpperArm" => Roll(-ArmDown + breath * 1.5f) * Yaw(-10),
+                "RightUpperArm" => Roll(ArmDown - breath * 1.5f) * Yaw(10),
+                "LeftLowerArm" or "RightLowerArm" => Pitch(-18),
                 _ => Basis.Identity,
             };
             Rotate(index, rotation);
@@ -86,6 +88,16 @@ internal sealed class VrmPoser
     {
         var pose = _skeleton.GetBoneGlobalPose(index);
         _skeleton.SetBoneGlobalPose(index, new Transform3D(rotation * pose.Basis, pose.Origin));
+    }
+
+    // 骨骼在静止姿态下的朝向：从自己指向第一个子骨骼；没有子骨骼时返回零向量（不会被当成跟随骨骼）。
+    private static Vector3 RestDirection(Skeleton3D skeleton, int bone)
+    {
+        var children = skeleton.GetBoneChildren(bone);
+        if (children.Length == 0)
+            return Vector3.Zero;
+        var direction = skeleton.GetBoneGlobalRest(children[0]).Origin - skeleton.GetBoneGlobalRest(bone).Origin;
+        return direction.LengthSquared() > 1e-8f ? direction.Normalized() : Vector3.Zero;
     }
 
     // 绕 Y：正值把脸（+Z）转向 +X，也就是画面右边。

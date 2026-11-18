@@ -7,6 +7,8 @@ namespace JustNeko.Pet;
 /// </summary>
 internal sealed class PetMotionDirector(PetAvatar avatar, BehaviorCatalog catalog, Func<PetAppearance> appearance)
 {
+    private PetAvatar _avatar = avatar;
+
     public const int DragPriority = 100;
     public const int OneShotPriority = 50;
     public const int InteractionPriority = 20;
@@ -52,6 +54,14 @@ internal sealed class PetMotionDirector(PetAvatar avatar, BehaviorCatalog catalo
         Refresh();
     }
 
+    /// <summary>换了角色：之前播的动作作废，按新角色重新选一次。</summary>
+    public void SetAvatar(PetAvatar next)
+    {
+        _avatar = next;
+        _playing = null;
+        Refresh();
+    }
+
     /// <summary>动作绑定改了以后重新选一次。</summary>
     public void Refresh()
     {
@@ -67,12 +77,12 @@ internal sealed class PetMotionDirector(PetAvatar avatar, BehaviorCatalog catalo
         if (_playing == next)
             return;
         _playing = next;
-        avatar.PlayMotion(next.Item2, catalog.Find(behavior)?.Loop ?? true);
+        _avatar.PlayMotion(next.Item2, catalog.Find(behavior)?.Loop ?? true);
     }
 
     private string? GetMotion(string behavior)
     {
         var key = appearance().Motions.GetValueOrDefault(behavior);
-        return key is not null && avatar.HasMotion(key) ? key : null;
+        return key is not null && _avatar.HasMotion(key) ? key : null;
     }
 }
