@@ -6,6 +6,7 @@ using JustNeko.Core.Platform;
 using JustNeko.Core.Settings;
 using JustNeko.Pet;
 using JustNeko.Pet.Activities;
+using JustNeko.Pet.Rig;
 using JustNeko.Shell.Settings;
 using Timer = Godot.Timer;
 
@@ -54,6 +55,10 @@ public partial class DesktopPet : Control, IPetBody
     private long? _speaking;
     private bool _replying;
     private long _moodVersion;
+    private readonly LookAtCursor _look = new();
+    private readonly DragSway _sway = new();
+    private readonly TextMouth _mouth = new();
+    private int _spokenLength;
 
     public override void _Ready()
     {
@@ -165,6 +170,7 @@ public partial class DesktopPet : Control, IPetBody
     {
         if (_headless || !_shown)
             return;
+        UpdateRig(delta);
 
         var cursor = DisplayServer.MouseGetPosition();
         if (_pressed)
@@ -192,6 +198,17 @@ public partial class DesktopPet : Control, IPetBody
         var passThrough = !_pressed && !_pet.ContainsPointer(local) && !(_badge.Visible && _badge.GetRect().HasPoint(local));
         if (_window.MousePassthrough != passThrough)
             _window.MousePassthrough = passThrough;
+    }
+
+    // ---- 通用层：看鼠标、拖动晃动、对口型，和角色格式无关 ----
+
+    private void UpdateRig(double delta)
+    {
+        var bounds = new Rect2I(_window.Position, _window.Size);
+        var head = new Vector2(bounds.GetCenter().X, bounds.Position.Y + bounds.Size.Y * 0.28f);
+        var look = _look.Update(DisplayServer.MouseGetPosition(), head, enabled: !_dragging, delta);
+        var lean = _sway.Update(_window.Position, delta);
+        ((IAvatarRig)_pet).SetPose(new AvatarPose(look, lean, _mouth.Sample(delta)));
     }
 
     // ---- IPetBody：给自主活动用 ----
@@ -222,6 +239,8 @@ public partial class DesktopPet : Control, IPetBody
             case InteractionStarted started:
                 _speaking = started.InteractionId;
                 _replying = false;
+                _mouth.Stop();
+                _spokenLength = 0;
                 _moodVersion++;
                 _services.Activities.Interrupt();
                 _speech.Begin();
@@ -235,6 +254,9 @@ public partial class DesktopPet : Control, IPetBody
                     _motions.Hold(InteractionLayer, PetMotionDirector.InteractionPriority, BehaviorCatalog.Replying);
                 }
                 _speech.SetText(updated.Text);
+                if (updated.Text.Length > _spokenLength)
+                    _mouth.Feed(updated.Text[_spokenLength..]);
+                _spokenLength = updated.Text.Length;
                 break;
             case DirectiveReceived { Name: "emotion" } directive when directive.InteractionId == _speaking:
                 var emotion = directive.Value.ToLowerInvariant();
@@ -243,6 +265,10 @@ public partial class DesktopPet : Control, IPetBody
                 break;
             case InteractionEnded ended when ended.InteractionId == _speaking:
                 _speaking = null;
+                if (ended.Outcome == InteractionOutcome.Completed)
+                    _mouth.Finish();
+                else
+                    _mouth.Stop();
                 _speech.SetText(ReplyText.ForEnded(ended));
                 _speech.FadeAfterReply();
                 _motions.Release(InteractionLayer);
@@ -391,6 +417,7 @@ public partial class DesktopPet : Control, IPetBody
 
     private void ClearConversation()
     {
+        _mouth.Stop();
         _interactions.ClearConversation();
         _services.ChatHistory.Clear();
         _chat.ClearTranscript();

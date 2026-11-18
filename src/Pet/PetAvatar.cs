@@ -1,10 +1,11 @@
 using Godot;
+using JustNeko.Pet.Rig;
 using FileAccess = Godot.FileAccess;
 
 namespace JustNeko.Pet;
 
 /// <summary>角色本体：优先用 Live2D 模型渲染，扩展或模型不可用时画内置的预览猫。</summary>
-public partial class PetAvatar : Control
+public partial class PetAvatar : Control, IAvatarRig
 {
     private const int RenderScale = 2;
     private const int MotionPriority = 3;
@@ -18,6 +19,8 @@ public partial class PetAvatar : Control
     private SubViewport? _renderViewport;
     private Node2D? _cubism;
     private int _motionVersion;
+    private Live2DRig? _rig;
+    private AvatarPose _pose = AvatarPose.Rest;
 
     public string Mood { get; private set; } = "neutral";
     internal IEnumerable<string> EmotionNames => _cubism is null ? FallbackEmotions : _expressions.Keys.Prepend("neutral");
@@ -72,6 +75,7 @@ public partial class PetAvatar : Control
         surface.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         ReadExpressions(cubism);
         ReadMotions(path);
+        _rig = Live2DRig.Attach(cubism, path);
         if (cubism.HasSignal("motion_finished"))
             cubism.Connect("motion_finished", Callable.From(OnNativeMotionFinished));
         Resized += FitCubism;
@@ -100,6 +104,24 @@ public partial class PetAvatar : Control
     }
 
     internal bool HasMotion(string key) => _motions.ContainsKey(key);
+
+    /// <summary>通用层（看鼠标、拖动晃动、对口型）算出的姿态，叠加在动作上。</summary>
+    void IAvatarRig.SetPose(AvatarPose pose)
+    {
+        if (_rig is not null)
+        {
+            _rig.SetPose(pose);
+            return;
+        }
+        // 没有 Live2D 时，预览猫的眼睛跟着看。
+        if (pose.Look.DistanceSquaredTo(_pose.Look) > 1e-4f)
+        {
+            _pose = pose;
+            QueueRedraw();
+        }
+    }
+
+    internal IEnumerable<string> RigBindings => _rig?.BoundParameters ?? [];
 
     internal void PlayMotion(string? key, bool loop)
     {
@@ -204,6 +226,6 @@ public partial class PetAvatar : Control
         else if (Mood == "happy")
             DrawArc(new Vector2(x, 1), 5, Mathf.Pi, Mathf.Tau, 14, Face, 2.5f, true);
         else
-            DrawCircle(new Vector2(x, 0), Mood == "curious" ? 4.6f : 3.5f, Face, antialiased: true);
+            DrawCircle(new Vector2(x + _pose.Look.X * 2f, -_pose.Look.Y * 2f), Mood == "curious" ? 4.6f : 3.5f, Face, antialiased: true);
     }
 }

@@ -42,6 +42,7 @@ dotnet build
 | `core/Platform` | `IPlatformServices`：凭据存储、隐藏任务栏按钮、隐藏窗口、全屏检测、子进程跟随退出。Windows 已实现；其他平台先用通用实现（Key 只留在内存、窗口挪到屏幕外），以后补 macOS 钥匙串、Linux libsecret |
 | `src/Pet` | `PetAvatar` 渲染角色；`BehaviorCatalog` 登记行为槽；`PetMotionDirector` 按优先级决定播哪个动作（拖动 > 一次性反应 > 交互阶段 > 自主活动 > 待机） |
 | `src/Pet/Activities` | 自主活动框架：`IPetActivity` + `ActivityDirector` |
+| `src/Pet/Rig` | 通用层，和角色格式无关：`LookAtCursor` 看鼠标、`DragSway` 拖动晃动（弹簧阻尼）、`TextMouth` 按文字节奏对口型（以后换成按语音音量），合成 `AvatarPose`（看向、倾斜、张嘴）。`Live2DRig` 把它叠加到 Live2D 参数上：默认用标准参数，嘴型读 model3.json 的 `LipSync` 分组，不符合标准的角色在模型目录放 `rig.json` 覆盖映射 |
 | `src/Shell` | 主场景 `DesktopPet`（组装各模块、鼠标操作、窗口跟随、显示和隐藏）、`TrayIcon` 托盘、`OnboardingWindow` 首次引导、聊天窗口、气泡和头顶小标记 |
 | `src/Shell/Settings` | 设置中心 `SettingsCenter` 和六个分页；加一页就是写一个 `SettingsPage` 子类，在 `SettingsCenter` 里登记 |
 | `assets/icon.svg` | 程序和托盘图标 |
