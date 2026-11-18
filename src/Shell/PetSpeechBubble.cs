@@ -1,6 +1,6 @@
 using Godot;
 
-namespace JustNeko;
+namespace JustNeko.Shell;
 
 public partial class PetSpeechBubble : Window
 {
@@ -131,7 +131,7 @@ public partial class PetSpeechBubble : Window
         var beside = new Vector2I(_petBounds.End.X + 5, head.Y);
         var below = new Vector2I(head.X - Size.X / 2, _petBounds.End.Y + 5);
         var fallback = below.Y + Size.Y <= _screenArea.End.Y ? below : beside;
-        var next = DesktopPet.ClampToScreen(hasRoomAbove ? above : fallback, Size, _screenArea);
+        var next = ScreenMath.ClampToScreen(hasRoomAbove ? above : fallback, Size, _screenArea);
         if (next != Position)
             Position = next;
         _tail.Visible = hasRoomAbove;

@@ -1,9 +1,10 @@
 using Godot;
 using FileAccess = Godot.FileAccess;
 
-namespace JustNeko;
+namespace JustNeko.Pet;
 
-public partial class PetPreview : Control
+/// <summary>角色本体：优先用 Live2D 模型渲染，扩展或模型不可用时画内置的预览猫。</summary>
+public partial class PetAvatar : Control
 {
     private const int RenderScale = 2;
     private const int MotionPriority = 3;

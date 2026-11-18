@@ -1,6 +1,6 @@
 using Godot;
 
-namespace JustNeko;
+namespace JustNeko.Shell;
 
 internal static class PetTheme
 {

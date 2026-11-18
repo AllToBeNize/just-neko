@@ -1,40 +1,34 @@
-using System.Text;
-using System.Text.Json;
 using Godot;
-using HttpRequestException = System.Net.Http.HttpRequestException;
+using JustNeko.Core.Interaction;
 
-namespace JustNeko;
+namespace JustNeko.Shell;
 
+/// <summary>聊天记录和输入框。只负责显示和收集输入，回复由交互编排器产生。</summary>
 public partial class ChatWindow : Window
 {
     private const int ComposerWidth = 238;
     private const int ComposerHeight = 45;
     private const int TranscriptHeight = 142;
     private const int ChatSpacing = 6;
-    private const int HistoryLimit = 16;
-    private readonly List<ChatMessage> _history = [];
-    private readonly PetPreview _pet;
-    private readonly SettingsWindow _settings;
-    private readonly PetSpeechBubble _speech;
+    private const int RowLimit = 16;
+    private readonly InteractionOrchestrator _interactions;
+    private readonly Dictionary<long, Label> _replies = [];
     private PanelContainer _transcript = null!;
     private ScrollContainer _scroll = null!;
     private VBoxContainer _messages = null!;
     private LineEdit _input = null!;
     private Button _send = null!;
-    private CancellationTokenSource? _request;
-    private (int Provider, Uri? Endpoint, string Model)? _conversationRoute;
     private Rect2I _petBounds;
     private Rect2I _screenArea;
 
-    internal event Action<PetBehavior>? BehaviorChanged;
+    internal event Action? Opened;
+    internal event Action? Closed;
 
     internal static int LeftExtent(int petWidth) => Math.Max(0, ComposerWidth + petWidth / 5 - petWidth / 2);
 
-    internal ChatWindow(PetPreview pet, SettingsWindow settings, PetSpeechBubble speech)
+    internal ChatWindow(InteractionOrchestrator interactions)
     {
-        _pet = pet;
-        _settings = settings;
-        _speech = speech;
+        _interactions = interactions;
         Visible = false;
         ForceNative = true;
         AlwaysOnTop = true;
@@ -57,12 +51,10 @@ public partial class ChatWindow : Window
         stack.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
         stack.AddChild(BuildTranscript());
         stack.AddChild(BuildComposer());
+        _interactions.Changed += OnInteraction;
     }
 
-    public override void _ExitTree()
-    {
-        _request?.Cancel();
-    }
+    public override void _ExitTree() => _interactions.Changed -= OnInteraction;
 
     internal void Open()
     {
@@ -72,7 +64,7 @@ public partial class ChatWindow : Window
         _input.GrabFocus();
         ScrollToLatest();
         if (!wasVisible)
-            BehaviorChanged?.Invoke(PetBehavior.ChatOpened);
+            Opened?.Invoke();
     }
 
     internal void Follow(Rect2I petBounds, Rect2I screenArea)
@@ -87,13 +79,13 @@ public partial class ChatWindow : Window
         var wasVisible = Visible;
         Hide();
         if (wasVisible)
-            BehaviorChanged?.Invoke(PetBehavior.ChatClosed);
+            Closed?.Invoke();
     }
 
-    internal void ClearConversation()
+    /// <summary>清掉显示的聊天记录。对话上下文由编排器清。</summary>
+    internal void ClearTranscript()
     {
-        _request?.Cancel();
-        _history.Clear();
+        _replies.Clear();
         foreach (var row in _messages.GetChildren())
         {
             _messages.RemoveChild(row);
@@ -101,9 +93,6 @@ public partial class ChatWindow : Window
         }
         _transcript.Hide();
         ResizeChat();
-        _speech.Dismiss();
-        _pet.SetMood("neutral");
-        BehaviorChanged?.Invoke(PetBehavior.Idle);
     }
 
     private void HandleKey(InputEvent input)
@@ -145,7 +134,7 @@ public partial class ChatWindow : Window
         };
         row.AddChild(body);
         _messages.AddChild(row);
-        if (_messages.GetChildCount() > HistoryLimit)
+        if (_messages.GetChildCount() > RowLimit)
         {
             var oldest = _messages.GetChild(0);
             _messages.RemoveChild(oldest);
@@ -190,115 +179,50 @@ public partial class ChatWindow : Window
 
     private void SendOrCancel()
     {
-        if (_request is not null)
+        if (_interactions.IsBusy)
         {
-            _request.Cancel();
+            _interactions.Cancel();
             return;
         }
-        _ = SendAsync();
-    }
 
-    private async Task SendAsync()
-    {
         var input = _input.Text.Trim();
         if (input.Length == 0)
             return;
-
-        var settings = _settings.Current;
-        var endpoint = settings.Provider == 0 ? null : ChatClient.ResolveEndpoint(settings.Endpoint);
-        var route = (settings.Provider, endpoint, settings.Model);
-        if (_conversationRoute != route)
-        {
-            _history.Clear();
-            _conversationRoute = route;
-        }
-
-        var user = new ChatMessage("user", input);
-        var expressionNames = _pet.EmotionNames.ToArray();
-        var expressionPrompt = "在回复正文最开头输出一个表情标签，例如 [emotion:neutral]。可选名称包括 "
-            + string.Join("、", expressionNames) + "。表情用名称表示，只输出一个标签，然后直接输出正文。";
-        ChatMessage[] context = [new("system", settings.Prompt + "\n" + expressionPrompt), .. _history, user];
         _input.Clear();
         AddMessage("你", input);
-        var entry = AddMessage("Neko", "…");
-        _transcript.Show();
-        ResizeChat();
-        ScrollToLatest();
-        _speech.Begin();
-        _pet.SetMood("neutral");
-        BehaviorChanged?.Invoke(PetBehavior.WaitingForReply);
+        _interactions.Submit(InteractionRequest.FromUser(input));
+    }
 
-        using var cancellation = new CancellationTokenSource();
-        _request = cancellation;
-        _send.Text = "停止";
-        var emotion = new EmotionStream(expressionNames);
-        var body = new StringBuilder();
-        var completed = false;
-        try
+    private void OnInteraction(InteractionEvent change)
+    {
+        switch (change)
         {
-            var stream = endpoint is null
-                ? ChatClient.DemoAsync(input, cancellation.Token)
-                : ChatClient.StreamAsync(endpoint, settings.Model, settings.Key, context, cancellation.Token);
-            await foreach (var piece in stream)
-            {
-                cancellation.Token.ThrowIfCancellationRequested();
-                var text = emotion.Read(piece);
-                if (_pet.Mood != emotion.Emotion)
-                    _pet.SetMood(emotion.Emotion);
-                if (text.Length > 0)
-                {
-                    if (body.Length == 0)
-                        BehaviorChanged?.Invoke(PetBehavior.Replying);
-                    SetReply(entry, body.Append(text).ToString());
-                }
-            }
-
-            cancellation.Token.ThrowIfCancellationRequested();
-            var reply = body.Append(emotion.Complete()).ToString();
-            if (string.IsNullOrWhiteSpace(reply))
-                throw new InvalidDataException("模型没有返回正文。");
-            SetReply(entry, reply);
-            _history.Add(user);
-            _history.Add(new ChatMessage("assistant", reply));
-            if (_history.Count > HistoryLimit)
-                _history.RemoveRange(0, 2);
-            completed = true;
-        }
-        catch (OperationCanceledException)
-        {
-            var status = cancellation.IsCancellationRequested ? "已停止" : "连接模型超时";
-            SetReply(entry, body.Length == 0 ? status : $"{body}\n{status}");
-        }
-        catch (Exception error) when (error is HttpRequestException or IOException or JsonException)
-        {
-            SetReply(entry, error is JsonException ? "模型返回了无法解析的流式数据。" : error.Message);
-        }
-        finally
-        {
-            _request = null;
-            if (IsInsideTree())
-            {
-                _send.Text = "发送";
-                if (IsCurrentReply(entry))
-                {
-                    _speech.FadeAfterReply();
-                    BehaviorChanged?.Invoke(completed ? PetBehavior.ReplyFinished : PetBehavior.Idle);
-                }
+            case InteractionStarted started:
+                _replies[started.InteractionId] = AddMessage("Neko", ReplyText.Waiting);
+                _transcript.Show();
+                ResizeChat();
+                ScrollToLatest();
+                _send.Text = "停止";
+                break;
+            case ReplyUpdated updated:
+                SetReply(updated.InteractionId, updated.Text);
+                break;
+            case InteractionEnded ended:
+                SetReply(ended.InteractionId, ReplyText.ForEnded(ended));
+                _replies.Remove(ended.InteractionId);
+                if (!_interactions.IsBusy)
+                    _send.Text = "发送";
                 if (Visible)
                     _input.GrabFocus();
-            }
+                break;
         }
     }
 
-    private bool IsCurrentReply(Label entry) => IsInsideTree() && IsInstanceValid(entry)
-        && !entry.IsQueuedForDeletion() && entry.IsInsideTree();
-
-    private void SetReply(Label entry, string text)
+    private void SetReply(long interactionId, string text)
     {
-        if (!IsCurrentReply(entry))
+        if (!_replies.TryGetValue(interactionId, out var entry) || !IsInstanceValid(entry) || !entry.IsInsideTree())
             return;
         entry.Text = text;
-        _speech.SetText(text);
         ScrollToLatest();
     }
 
@@ -332,7 +256,7 @@ public partial class ChatWindow : Window
         var x = left >= _screenArea.Position.X ? left : center.X + sideGap;
         var composerBottom = _petBounds.Position.Y + _petBounds.Size.Y * 3 / 4 + ComposerHeight / 2;
         var y = composerBottom - Size.Y;
-        var next = DesktopPet.ClampToScreen(new Vector2I(x, y), Size, _screenArea);
+        var next = ScreenMath.ClampToScreen(new Vector2I(x, y), Size, _screenArea);
         if (next != Position)
             Position = next;
     }

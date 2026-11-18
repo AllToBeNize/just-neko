@@ -17,14 +17,35 @@ dotnet build
 
 ## 接入自己的模型
 
-- 从角色右键菜单打开「设置…」，选择服务并点「应用」。默认的「离线演示」可以直接发送消息，验证聊天、表情和停止按钮。
-- **本地 Ollama**。启动 Ollama，选择已安装的聊天模型，填写模型名。默认地址 `http://localhost:11434/v1`，Key 可留空。
-- **OpenAI 兼容服务**。填服务提供的 API 基础地址、模型名和 Key。需要支持流式 `chat/completions`。例如 OpenAI 的基础地址为 `https://api.openai.com/v1`。
-- 可编辑角色提示词。应用把近期对话、当前消息和角色可用的表情名称一起发给选择的模型。本地和云端模型都可用 `[emotion:exp_06]` 或配置好的 `[emotion:shy]` 调用角色已有的表情。应用把标签解析为表情，正文显示在气泡里。设置和 Key 只保留在本次运行。
+- 从角色右键菜单打开「设置…」，选择服务并点「应用」。每种服务各记一份地址、模型和 Key，切换过去再切回来不用重填。设置保存在用户目录的 `settings.json`；Key 在 Windows 上用当前用户的 DPAPI 加密后单独保存，不会以明文落盘。
+- **本地 Ollama（默认）**。启动 Ollama 就能直接聊天。模型留空时自动用本机已安装的第一个模型，并记进设置；也可以点「检测」从已安装的模型里选。默认地址 `http://localhost:11434/v1`，Key 可留空。
+- **OpenAI 兼容服务**。填服务提供的 API 基础地址、模型名和 Key，需要支持流式 `chat/completions`，例如 OpenAI 的基础地址为 `https://api.openai.com/v1`。「检测」同样能列出服务上的模型。
+- **离线演示**。不联网，用来验证聊天、表情和停止按钮。
+- 可编辑角色提示词。应用把近期对话、当前消息和角色可用的表情名称一起发给选择的模型。本地和云端模型都可用 `[emotion:exp_06]` 或配置好的 `[emotion:shy]` 调用角色已有的表情。应用把标签解析为表情，正文显示在气泡里。连不上服务时，气泡里会说明该怎么处理。
+
+## 代码结构
+
+代码分两部分。`core/` 是独立的纯 C# 类库（`JustNeko.Core.csproj`），不引用 Godot，放 AI、交互编排、设置和平台接口；`src/` 是 Godot 这一侧，放角色表现和界面。以后换平台、写单元测试、接 Agent，都只依赖 `core/`。
+
+| 目录 | 内容 |
+|---|---|
+| `core/Ai` | 模型接口统一为 `Microsoft.Extensions.AI` 的 `IChatClient`，OpenAI 兼容服务和 Ollama 走官方 OpenAI SDK；`ModelRouter` 按任务从设置里选服务和模型 |
+| `core/Interaction` | `InteractionOrchestrator` 管一次交互的全过程：交互 ID、优先级、取消、丢弃迟到事件；`DirectiveParser` 从流里拆出 `[名称:值]` 指令；`InteractionLog` 把每次交互写进 `logs/interactions-日期.jsonl`（只记耗时和结果，不记内容） |
+| `core/Settings` | `settings.json` 的读写，Key 交给平台的凭据存储 |
+| `core/Platform` | `IPlatformServices`：双击间隔、凭据存储等系统能力。Windows 已实现；其他平台先用通用实现（Key 只留在内存），以后补 macOS 钥匙串、Linux libsecret |
+| `src/Pet` | `PetAvatar` 渲染角色；`BehaviorCatalog` 登记行为槽；`PetMotionDirector` 按优先级决定播哪个动作（拖动 > 一次性反应 > 交互阶段 > 自主活动 > 待机） |
+| `src/Pet/Activities` | 自主活动框架：`IPetActivity` + `ActivityDirector` |
+| `src/Shell` | 主场景 `DesktopPet`（组装各模块、鼠标操作、窗口跟随）和各个窗口 |
+
+**加一个自主活动**（比如沿任务栏走）：实现 `IPetActivity`，在 `DesktopPet._Ready` 创建角色属性窗口之前用 `_activities.Register(new 你的活动(), _behaviors)` 登记。活动在 `Slots` 里声明自己要的行为槽（比如「走路」），玩家就能在角色属性里给它选动作；`Start` 里用 `context.HoldMotion` 播动作，`Update` 里用 `context.Body.MoveTo` 移动角色，`Body.ScreenRect` 和 `Body.WorkArea` 之差就是任务栏所在的边。角色空闲 20–60 秒后按权重抽一个活动来做；用户一拖动、开聊天或开始 AI 交互，活动会被停掉。AI 指令或 Agent 工具可以用 `ActivityDirector.TryStart(id)` 直接触发。
+
+**加一种 AI 指令**：往 `InteractionOrchestrator.Directives` 里登记名称（比如 `action`），然后在 `DesktopPet.OnInteraction` 里处理对应的 `DirectiveReceived`。
+
+**加一种交互来源**（习惯、看屏幕、Agent）：构造 `InteractionRequest` 交给 `InteractionOrchestrator.Submit`，用 `Priority` 决定能不能打断正在进行的交互（用户输入是 100）。气泡、表情、动作、聊天记录和留痕都会自动跟上。
 
 ## AI 流程
 
-初版已经跑通「发送消息 → 组装提示词和近期对话 → 选择离线演示或兼容接口 → 流式文字和表情 → 完成或停止」。现有 HTTP 客户端独立于 Godot，聊天窗口负责把结果交给界面和角色预览。
+已经跑通「发送消息 → 组装提示词和近期对话 → 按设置选择服务 → 流式文字和表情 → 完成或停止」，这条流程由 `core/` 里的交互编排器负责，聊天窗口、气泡和角色都只订阅它的事件。
 
 后续以一次交互为单位组织流程。用户发消息、主动让桌宠看屏幕、习惯到期都可发起交互。点头、跟视、悬停等能在本地立即完成的反应直接由 Godot 执行。需要生成回应的事件才进入异步流程。
 

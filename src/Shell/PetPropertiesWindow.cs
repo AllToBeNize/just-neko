@@ -1,23 +1,27 @@
 using Godot;
+using JustNeko.Pet;
 using Timer = Godot.Timer;
 
-namespace JustNeko;
+namespace JustNeko.Shell;
 
 public partial class PetPropertiesWindow : Window
 {
     private const int PanelWidth = 218;
     private const int PanelHeight = 344;
     private readonly PetMotion[] _motions;
+    private readonly BehaviorCatalog _catalog;
     private Timer _saveTimer = null!;
     private Label _saveError = null!;
     private bool _dirty;
 
-    internal PetAppearance Appearance { get; private set; } = PetAppearance.Load();
+    internal PetAppearance Appearance { get; private set; }
     internal event Action? AppearanceChanged;
 
-    internal PetPropertiesWindow(IEnumerable<PetMotion> motions)
+    internal PetPropertiesWindow(IEnumerable<PetMotion> motions, BehaviorCatalog catalog)
     {
         _motions = motions.ToArray();
+        _catalog = catalog;
+        Appearance = PetAppearance.Load(catalog);
         Title = "角色属性";
         Visible = false;
         ForceNative = true;
@@ -76,7 +80,7 @@ public partial class PetPropertiesWindow : Window
         BuildSizeControl(fields);
 
         fields.AddChild(PetTheme.Label("行为动画", PetTheme.Ink, 14));
-        foreach (var slot in PetAppearance.Slots)
+        foreach (var slot in _catalog.Slots)
             AddMotionField(fields, slot);
 
         _saveError = PetTheme.Label("", PetTheme.Accent, 12);
@@ -105,7 +109,7 @@ public partial class PetPropertiesWindow : Window
     internal void Follow(Rect2I petBounds, Rect2I screenArea)
     {
         var offset = new Vector2I(RightOffset(petBounds.Size.X), 12);
-        var next = DesktopPet.ClampToScreen(petBounds.Position + offset, Size, screenArea);
+        var next = ScreenMath.ClampToScreen(petBounds.Position + offset, Size, screenArea);
         if (Position != next)
             Position = next;
     }
@@ -148,7 +152,7 @@ public partial class PetPropertiesWindow : Window
         row.AddChild(caption);
         var selector = new OptionButton
         {
-            Name = slot.Behavior.ToString(),
+            Name = slot.Id,
             Disabled = _motions.Length == 0,
             FitToLongestItem = false,
             ClipText = true,
@@ -163,22 +167,22 @@ public partial class PetPropertiesWindow : Window
             selector.AddItem(motion.Name);
             selector.GetPopup().SetItemTooltip(selector.ItemCount - 1, motion.Label);
         }
-        var key = Appearance.Motions.GetValueOrDefault(slot.Behavior);
+        var key = Appearance.Motions.GetValueOrDefault(slot.Id);
         selector.Select(Array.FindIndex(_motions, motion => motion.Key == key) + 1);
         selector.TooltipText = selector.Selected > 0 ? _motions[selector.Selected - 1].Label : "无";
         selector.ItemSelected += index =>
         {
-            var bindings = new Dictionary<PetBehavior, string>(Appearance.Motions);
+            var bindings = new Dictionary<string, string>(Appearance.Motions);
             if (index == 0)
             {
                 selector.TooltipText = "无";
-                bindings.Remove(slot.Behavior);
+                bindings.Remove(slot.Id);
             }
             else
             {
                 var motion = _motions[index - 1];
                 selector.TooltipText = motion.Label;
-                bindings[slot.Behavior] = motion.Key;
+                bindings[slot.Id] = motion.Key;
             }
             UpdateAppearance(Appearance with { Motions = bindings });
         };
@@ -197,7 +201,7 @@ public partial class PetPropertiesWindow : Window
     {
         if (!_dirty)
             return;
-        var error = Appearance.Save();
+        var error = Appearance.Save(_catalog);
         _dirty = error != Error.Ok;
         if (_dirty)
             _saveError.Text = $"无法保存角色属性（{error}）。";

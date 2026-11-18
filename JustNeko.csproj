@@ -5,4 +5,9 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
   </PropertyGroup>
+  <ItemGroup>
+    <!-- core 是独立的纯 C# 类库，不依赖 Godot；AI_Temp 是本地临时目录 -->
+    <Compile Remove="core/**;AI_Temp/**" />
+    <ProjectReference Include="core/JustNeko.Core.csproj" />
+  </ItemGroup>
 </Project>

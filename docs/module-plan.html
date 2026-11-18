@@ -83,9 +83,10 @@
 <main>
 
 <h1>Just Neko<small>模块规划 · 需求整理 · 拓展方向</small></h1>
-<p class="lead">2026-11-18 · 基于首个提交时的原型整理</p>
+<p class="lead">2026-11-18 · 基于首个提交时的原型整理；同日完成 M1 地基重构后更新</p>
 
 <div class="summary">
+  <p><b>更新：</b>方向已经定了：要按对外发布做、TTS 本地和云端都做、默认用本地模型、提前为多平台留好接口。M1 地基重构已经完成，结构和扩展方法见 README 的「代码结构」。下面是重构前的判断，保留作对照。</p>
   <p>现在的原型已经证明三件事能成：<b>透明置顶的 Live2D 桌宠</b>、<b>流式 AI 聊天带表情</b>、<b>行为驱动的动作绑定</b>。接下来最大的问题不是缺功能，而是所有 AI 逻辑都塞在 <code>ChatWindow.SendAsync</code> 里：拼提示词、选服务、解析表情、推气泡、切动作全在一个方法里完成。语音、视觉、记忆、习惯都要从「一次交互」这个入口进来，所以我建议下一步先花一个小里程碑把<b>交互编排层</b>抽出来，再按 语音 → 视觉与记忆 → 习惯 → 插件 的顺序往上叠。</p>
 </div>
 
@@ -95,11 +96,11 @@
   <tr><td>桌面外壳</td><td><code>DesktopPet</code>：透明无边框置顶、像素级鼠标穿透、拖动、单击/双击/右键</td><td><span class="tag done">可用</span></td><td>没有托盘图标、单实例、开机自启；位置不记忆</td></tr>
   <tr><td>角色渲染</td><td><code>PetPreview</code> + gd_cubism（自编 R5 扩展），2 倍分辨率渲染，失败时退回内置猫</td><td><span class="tag done">可用</span></td><td>Cubism 5.3 新混合模式未适配；没有口型和视线跟随</td></tr>
   <tr><td>动作绑定</td><td>7 个行为槽位 → 模型动作，默认值在 <code>config/</code>，玩家选择存 <code>user://</code></td><td><span class="tag done">可用</span></td><td>行为枚举写死，只覆盖聊天相关的状态</td></tr>
-  <tr><td>AI 聊天</td><td><code>ChatClient</code>：离线演示 + OpenAI 兼容流式接口（Ollama 也走这条）</td><td><span class="tag done">可用</span></td><td>静态类，只有文本；近期对话最多 16 条，只在内存里</td></tr>
-  <tr><td>表情指令</td><td><code>EmotionStream</code>：解析回复开头的 <code>[emotion:xxx]</code>，支持别名</td><td><span class="tag wip">初版</span></td><td>只认开头一个标签，不能在句中切表情或触发动作</td></tr>
+  <tr><td>AI 聊天</td><td><span class="tag done">已重构</span> <code>IChatClient</code> + 官方 OpenAI SDK；本地 Ollama 为默认，可自动选模型、检测模型列表</td><td><span class="tag done">可用</span></td><td>只有文本；近期对话最多 16 条，只在内存里</td></tr>
+  <tr><td>表情指令</td><td><span class="tag done">已重构</span> <code>DirectiveParser</code>：任意位置的 <code>[名称:值]</code>，名称可登记</td><td><span class="tag done">可用</span></td><td>目前只登记了 emotion；动作指令待接</td></tr>
   <tr><td>气泡与聊天窗</td><td>独立原生窗口，跟随角色；回复结束 5 秒渐隐</td><td><span class="tag done">可用</span></td><td>—</td></tr>
-  <tr><td>设置</td><td><code>SettingsWindow</code>：服务、地址、模型、Key、角色提示词</td><td><span class="tag wip">初版</span></td><td>重启就丢；Key 没有安全存储</td></tr>
-  <tr><td>测试</td><td><code>AI_Temp/</code> 下 6 个冒烟脚本 + 本地 SSE 夹具</td><td><span class="tag wip">临时</span></td><td>不在仓库里，无法重复跑；没有交互留痕</td></tr>
+  <tr><td>设置</td><td><span class="tag done">已重构</span> 持久化到 <code>settings.json</code>，每种服务各记一份；Key 用 DPAPI 加密</td><td><span class="tag done">可用</span></td><td>macOS / Linux 的凭据存储待实现</td></tr>
+  <tr><td>测试与留痕</td><td>core 单元测试 + Godot 回归脚本（本地 <code>AI_Temp/</code>，不入库）；交互留痕写 <code>logs/*.jsonl</code></td><td><span class="tag done">可用</span></td><td>留痕还没有配套的复盘流程</td></tr>
 </table>
 
 <h2>2. 目标架构</h2>
@@ -111,6 +112,7 @@
     <div class="mods">
       <div class="mod done"><b>桌面窗口</b>透明置顶、穿透、拖动、多屏夹取</div>
       <div class="mod done"><b>交互界面</b>聊天窗、气泡、属性面板、设置</div>
+      <div class="mod done"><b>平台接口</b>IPlatformServices：Windows 已实现，其他平台留好口子</div>
       <div class="mod todo"><b>系统集成</b>托盘、单实例、开机自启、全局快捷键</div>
     </div>
   </div>
@@ -118,15 +120,16 @@
     <div class="layer-name">表现层<span>Avatar · Godot</span></div>
     <div class="mods">
       <div class="mod done"><b>Live2D 渲染</b>gd_cubism、模型加载、退回预览猫</div>
-      <div class="mod wip"><b>行为状态机</b>行为 → 动作 / 表情，循环与单次</div>
+      <div class="mod done"><b>行为状态机</b>分层占用，按优先级选动作</div>
+      <div class="mod done"><b>自主活动</b>IPetActivity 框架，空闲时抽取、用户操作即停</div>
       <div class="mod todo"><b>本地反应</b>视线跟随、悬停、点头、口型</div>
     </div>
   </div>
   <div class="layer">
     <div class="layer-name">编排层<span>Interaction · 纯 C#</span></div>
     <div class="mods">
-      <div class="mod todo"><b>交互编排器</b>统一入口、交互 ID、优先级、取消、丢弃迟到事件</div>
-      <div class="mod wip"><b>指令解析</b>流式拆出文本 / 表情 / 动作 / 工具调用</div>
+      <div class="mod done"><b>交互编排器</b>统一入口、交互 ID、优先级、取消、丢弃迟到事件</div>
+      <div class="mod done"><b>指令解析</b>流式拆出文本 / 表情 / 动作 / 工具调用</div>
       <div class="mod todo"><b>习惯调度</b>定时与条件触发、静默时段、冷却</div>
       <div class="mod todo"><b>工具与权限</b>内置工具、MCP 插件、调用前核对权限</div>
     </div>
@@ -134,7 +137,7 @@
   <div class="layer">
     <div class="layer-name">能力层<span>Services · 纯 C#</span></div>
     <div class="mods">
-      <div class="mod wip"><b>模型服务</b>IChatClient 适配器，按任务路由，声明能力</div>
+      <div class="mod done"><b>模型服务</b>IChatClient 适配器，按任务路由，声明能力</div>
       <div class="mod todo"><b>语音</b>TTS 句段队列、播放、口型数据；后续 ASR</div>
       <div class="mod todo"><b>感知</b>单帧截屏、活动窗口、空闲检测</div>
       <div class="mod todo"><b>记忆</b>近期对话、长期记忆、检索、确认与编辑</div>
@@ -143,9 +146,9 @@
   <div class="layer">
     <div class="layer-name">基础层<span>Foundation</span></div>
     <div class="mods">
-      <div class="mod wip"><b>设置与凭据</b>持久化设置；Key 走 Windows DPAPI</div>
+      <div class="mod done"><b>设置与凭据</b>持久化设置；Key 走 Windows DPAPI</div>
       <div class="mod todo"><b>角色包</b>带版本的 JSON：模型、设定、表情映射、动作、习惯</div>
-      <div class="mod todo"><b>留痕与诊断</b>每次交互一条结构化记录</div>
+      <div class="mod done"><b>留痕与诊断</b>每次交互一条结构化记录</div>
       <div class="mod todo"><b>打包发布</b>安装包、更新、字体、编码自检</div>
     </div>
   </div>
@@ -207,14 +210,14 @@
     <h3>M0 · 原型 <span class="tag done">已完成</span></h3>
     桌宠外壳、Live2D、流式聊天带表情、行为动作绑定、气泡、属性面板。
   </div>
-  <div class="ms next">
-    <h3>M1 · 地基重构 <span class="tag p0">下一步</span></h3>
-    抽出交互编排器、IChatClient 适配器、指令解析器和行为状态机；设置持久化 + DPAPI；交互留痕；把冒烟测试做成仓库里能重复跑的测试工程。
-    <div class="accept"><b>验收：</b>现有功能逐项回归无变化，停止和迟到事件有自动化测试覆盖。</div>
+  <div class="ms done">
+    <h3>M1 · 地基重构 <span class="tag done">已完成</span></h3>
+    拆出纯 C# 的 core 类库；交互编排器、IChatClient、指令解析器、分层动作、自主活动框架；默认本地 Ollama；设置持久化 + DPAPI；平台接口；交互留痕。
+    <div class="accept"><b>验收：</b>原有的聊天、气泡、角色属性回归全部通过；停止、迟到事件、优先级、错误提示、设置和 Key 读回都有自动化测试覆盖（测试留在本地 AI_Temp，不入库）。</div>
   </div>
-  <div class="ms">
-    <h3>M2 · 会说话</h3>
-    TTS 适配器（先接一种云端，一种本地）、按句切分的播放队列、按音量驱动口型、停止即停声。
+  <div class="ms next">
+    <h3>M2 · 会说话 <span class="tag p0">下一步</span></h3>
+    TTS 适配器（本地和云端都做，设置里切换）、按句切分的播放队列、按音量驱动口型、停止即停声。
     <div class="accept"><b>验收：</b>F3、F4 达标；连续 20 轮对话没有声音错位或残留。</div>
   </div>
   <div class="ms">
@@ -262,16 +265,15 @@
   <tr><td>云端模型限流和费用</td><td>习惯触发太频繁会烧钱或被限流</td><td>习惯默认冷却保守一点；按服务统计调用次数</td></tr>
 </table>
 
-<h2>7. 需要你拍板的</h2>
-<div class="q"><b>Q1 产品定位</b>：自己用、工作室内部用，还是对外发布（比如上 Steam）？
-  <div class="opts">这决定了模型和 SDK 的许可要做到什么程度，也决定 M6 要不要做。</div></div>
-<div class="q"><b>Q2 语音方案</b>：先接哪种 TTS？
-  <div class="opts">1 云端（音质好、要联网、按量收费） · 2 本地（离线、吃显卡） · 3 两种都做，设置里切换</div></div>
-<div class="q"><b>Q3 默认模型</b>：开箱默认推本地 Ollama，还是云端服务？
-  <div class="opts">影响首次启动引导和视觉、Embedding 的默认路由。</div></div>
-<div class="q"><b>Q4 平台</b>：只做 Windows，还是将来要上 macOS？
-  <div class="opts">现在用了 <code>user32.dll</code>、计划用 DPAPI，跨平台的话要在这些地方抽一层。</div></div>
-<div class="q"><b>Q5 M1 范围</b>：同意先做地基重构，再做语音吗？还是想先把语音做出来看效果，再回头重构？</div>
+<h2>7. 已定的方向</h2>
+<table>
+  <tr><th>问题</th><th>决定</th><th>对架构的影响</th></tr>
+  <tr><td>产品定位</td><td>可能对外发布</td><td>M6 要做；发布前换掉 Mao 示例模型，查 Cubism SDK 发行许可</td></tr>
+  <tr><td>语音方案</td><td>本地和云端 TTS 都做</td><td>M2 先定 TTS 接口和播放队列，两种实现挂在同一个接口下</td></tr>
+  <tr><td>默认模型</td><td>默认本地，用户可以自己设置</td><td>已实现：默认 Ollama，自动选已安装的模型，设置里可切换服务</td></tr>
+  <tr><td>平台</td><td>可能多平台</td><td>已把系统调用收进 <code>IPlatformServices</code>，core 不依赖 Godot；新平台补一份实现即可</td></tr>
+  <tr><td>先后顺序</td><td>先拆架构，方便以后加小功能、AI 行为和 Agent 编排</td><td>已完成 M1；小功能走自主活动框架，AI 行为走指令登记，Agent 以后接在编排层</td></tr>
+</table>
 
 <footer>Just Neko · C:\Dev\just-neko\docs\module-plan.html</footer>
 </main>
