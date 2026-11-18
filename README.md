@@ -1,8 +1,12 @@
 # Just Neko
 
-Windows 桌宠的第一版 AI 交互原型。启动后，角色出现在桌面右下角。左键点角色会在左下侧打开聊天，发送和收到的消息保留在聊天记录中。头顶的独立气泡逐段显示当前回复，回复结束后停留 5 秒再渐隐。拖动角色时，聊天和气泡都会跟着移动。右键菜单可以打开设置、清空对话或退出。点 × 或按 Esc 可以收起聊天，生成中的回复会继续显示在头顶；要中断生成，点「停止」。
+Windows 上的 AI 桌宠。启动后角色出现在桌面右下角，任务栏上没有它的按钮，只在托盘里有一个猫头图标。
 
-双击角色，在右侧打开或收起「角色属性」。人物大小可在 60%–180% 间实时调整，大小和动作配置自动保存到本机。待机、打开聊天、收起聊天、拖动角色、等待回复、回复中和回复完成各有一项动画绑定。下拉列表来自当前 Live2D 模型 `FileReferences.Motions` 中已注册的动作文件。Mao 的默认绑定在 `config/pet-motion-defaults.cfg`，玩家保存的选择优先。待机、拖动、等待及回复中会在对应阶段循环播放，其余动作播放一次。
+**角色只管互动。** 单击角色摸摸头（她会开心一下），双击跟她聊天，拖动可以搬到别处；右键菜单里有聊天、摸摸头、清空对话和「藏到托盘」。聊天时角色旁边只弹出一个小输入框，回复在头顶的气泡里逐段说出来，说完停留 5 秒再渐隐。想翻之前的对话，点输入框左边的「≡」展开聊天记录（还能再点「展开」看更长的），记录挡住气泡时气泡会挪到角色右侧。聊天记录默认保存在本机，重启后还在。模型连不上时角色头上会出现一个小「!」，点它直接打开对应的设置。
+
+**托盘是后台。** 左键显示或藏起角色；右键菜单里有勿扰模式、设置中心、本地模型状态和退出。设置中心分六页：对话（模型服务、测试连接、角色提示词）、本地模型（下载和状态）、角色（人物大小、高级的动作绑定）、行为（全屏时自动隐藏、勿扰）、隐私（聊天记录、交互留痕）、关于。前台有全屏程序时角色会自动藏起来；勿扰时角色不会自己走动或主动搭话。
+
+第一次启动有引导：本机已经在跑 Ollama 就直接用它；没有的话可以下载内置本地模型、填云端服务，或者先用离线演示。
 
 ## 本机启动
 
@@ -17,11 +21,13 @@ dotnet build
 
 ## 接入自己的模型
 
-- 从角色右键菜单打开「设置…」，选择服务并点「应用」。每种服务各记一份地址、模型和 Key，切换过去再切回来不用重填。设置保存在用户目录的 `settings.json`；Key 在 Windows 上用当前用户的 DPAPI 加密后单独保存，不会以明文落盘。
-- **本地 Ollama（默认）**。启动 Ollama 就能直接聊天。模型留空时自动用本机已安装的第一个模型，并记进设置；也可以点「检测」从已安装的模型里选。默认地址 `http://localhost:11434/v1`，Key 可留空。
-- **OpenAI 兼容服务**。填服务提供的 API 基础地址、模型名和 Key，需要支持流式 `chat/completions`，例如 OpenAI 的基础地址为 `https://api.openai.com/v1`。「检测」同样能列出服务上的模型。
-- **离线演示**。不联网，用来验证聊天、表情和停止按钮。
-- 可编辑角色提示词。应用把近期对话、当前消息和角色可用的表情名称一起发给选择的模型。本地和云端模型都可用 `[emotion:exp_06]` 或配置好的 `[emotion:shy]` 调用角色已有的表情。应用把标签解析为表情，正文显示在气泡里。连不上服务时，气泡里会说明该怎么处理。
+从托盘菜单打开「设置中心 → 对话」，选择服务、点「测试连接」确认能用，再点「应用」。每种服务各记一份地址、模型和 Key，切换过去再切回来不用重填。设置保存在用户目录的 `settings.json`；Key 在 Windows 上用当前用户的 DPAPI 加密后单独保存，不会以明文落盘。
+
+- **内置本地模型（默认）**。桌宠自带 llama.cpp 的 `llama-server`（Vulkan 版，AMD / NVIDIA / Intel 显卡都能加速，没有显卡时用 CPU）和 Qwen3 1.7B（Q4_K_M，约 1.1 GB）。第一次使用时下载到 `%LOCALAPPDATA%\JustNeko\local-model`，可以取消，下次接着下，下完按 SHA256 校验；HuggingFace 连不上时自动换国内镜像。聊天时桌宠自己启动 `llama-server`（只监听 127.0.0.1，关掉了思考模式），退出时一起关掉，桌宠崩溃时系统也会把它收掉。版本固定在 `core/LocalModel/LocalModelManifest.cs`。
+- **本地 Ollama**。启动 Ollama 就能用。模型留空时自动用本机已安装的第一个模型，也可以点「检测」从已安装的模型里选。默认地址 `http://localhost:11434/v1`，Key 可留空。
+- **OpenAI 兼容服务**。填服务提供的 API 基础地址、模型名和 Key，需要支持流式 `chat/completions`，例如 OpenAI 的基础地址为 `https://api.openai.com/v1`。
+- **离线演示**。不联网，用来看聊天、表情和停止按钮怎么动。
+- 可编辑角色提示词。应用把近期对话、当前消息和角色可用的表情名称一起发给模型。模型用 `[emotion:exp_06]` 或配置好的 `[emotion:shy]` 调用角色已有的表情，应用把标签解析为表情，正文显示在气泡里。
 
 ## 代码结构
 
@@ -30,14 +36,17 @@ dotnet build
 | 目录 | 内容 |
 |---|---|
 | `core/Ai` | 模型接口统一为 `Microsoft.Extensions.AI` 的 `IChatClient`，OpenAI 兼容服务和 Ollama 走官方 OpenAI SDK；`ModelRouter` 按任务从设置里选服务和模型 |
-| `core/Interaction` | `InteractionOrchestrator` 管一次交互的全过程：交互 ID、优先级、取消、丢弃迟到事件；`DirectiveParser` 从流里拆出 `[名称:值]` 指令；`InteractionLog` 把每次交互写进 `logs/interactions-日期.jsonl`（只记耗时和结果，不记内容） |
+| `core/Interaction` | `InteractionOrchestrator` 管一次交互的全过程：交互 ID、优先级、取消、丢弃迟到事件；`DirectiveParser` 从流里拆出 `[名称:值]` 指令；`InteractionLog` 把每次交互写进 `logs/interactions-日期.jsonl`（只记耗时和结果，不记内容）；`ChatHistoryStore` 保存聊天记录 |
+| `core/LocalModel` | 内置本地模型：`LocalModelManifest` 固定下载哪些文件，`LocalModelInstaller` 负责续传、校验、换镜像和磁盘空间检查，`LocalModelManager` 管下载状态和 `llama-server` 进程 |
 | `core/Settings` | `settings.json` 的读写，Key 交给平台的凭据存储 |
-| `core/Platform` | `IPlatformServices`：双击间隔、凭据存储等系统能力。Windows 已实现；其他平台先用通用实现（Key 只留在内存），以后补 macOS 钥匙串、Linux libsecret |
+| `core/Platform` | `IPlatformServices`：凭据存储、隐藏任务栏按钮、隐藏窗口、全屏检测、子进程跟随退出。Windows 已实现；其他平台先用通用实现（Key 只留在内存、窗口挪到屏幕外），以后补 macOS 钥匙串、Linux libsecret |
 | `src/Pet` | `PetAvatar` 渲染角色；`BehaviorCatalog` 登记行为槽；`PetMotionDirector` 按优先级决定播哪个动作（拖动 > 一次性反应 > 交互阶段 > 自主活动 > 待机） |
 | `src/Pet/Activities` | 自主活动框架：`IPetActivity` + `ActivityDirector` |
-| `src/Shell` | 主场景 `DesktopPet`（组装各模块、鼠标操作、窗口跟随）和各个窗口 |
+| `src/Shell` | 主场景 `DesktopPet`（组装各模块、鼠标操作、窗口跟随、显示和隐藏）、`TrayIcon` 托盘、`OnboardingWindow` 首次引导、聊天窗口、气泡和头顶小标记 |
+| `src/Shell/Settings` | 设置中心 `SettingsCenter` 和六个分页；加一页就是写一个 `SettingsPage` 子类，在 `SettingsCenter` 里登记 |
+| `assets/icon.svg` | 程序和托盘图标 |
 
-**加一个自主活动**（比如沿任务栏走）：实现 `IPetActivity`，在 `DesktopPet._Ready` 创建角色属性窗口之前用 `_activities.Register(new 你的活动(), _behaviors)` 登记。活动在 `Slots` 里声明自己要的行为槽（比如「走路」），玩家就能在角色属性里给它选动作；`Start` 里用 `context.HoldMotion` 播动作，`Update` 里用 `context.Body.MoveTo` 移动角色，`Body.ScreenRect` 和 `Body.WorkArea` 之差就是任务栏所在的边。角色空闲 20–60 秒后按权重抽一个活动来做；用户一拖动、开聊天或开始 AI 交互，活动会被停掉。AI 指令或 Agent 工具可以用 `ActivityDirector.TryStart(id)` 直接触发。
+**加一个自主活动**（比如沿任务栏走）：实现 `IPetActivity`，在 `DesktopPet._Ready` 创建设置中心之前用 `activities.Register(new 你的活动(), behaviors)` 登记。活动在 `Slots` 里声明自己要的行为槽（比如「走路」），玩家就能在「设置中心 → 角色 → 动作绑定」里给它选动作；`Start` 里用 `context.HoldMotion` 播动作，`Update` 里用 `context.Body.MoveTo` 移动角色，`Body.ScreenRect` 和 `Body.WorkArea` 之差就是任务栏所在的边。角色空闲 20–60 秒后按权重抽一个活动来做；用户一拖动、开聊天或开始 AI 交互，活动会被停掉；勿扰时不会开始。AI 指令或 Agent 工具可以用 `ActivityDirector.TryStart(id)` 直接触发。
 
 **加一种 AI 指令**：往 `InteractionOrchestrator.Directives` 里登记名称（比如 `action`），然后在 `DesktopPet.OnInteraction` 里处理对应的 `DirectiveReceived`。
 

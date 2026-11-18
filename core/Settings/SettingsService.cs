@@ -23,6 +23,8 @@ public sealed class SettingsService(string directory, ISecretStore secrets)
 
     public bool KeysPersist => secrets.IsPersistent;
 
+    public event Action? Changed;
+
     public void Load()
     {
         LoadError = null;
@@ -42,6 +44,7 @@ public sealed class SettingsService(string directory, ISecretStore secrets)
     public string? Update(AppSettings next)
     {
         Current = next with { Version = AppSettings.CurrentVersion };
+        Changed?.Invoke();
         try
         {
             Directory.CreateDirectory(directory);

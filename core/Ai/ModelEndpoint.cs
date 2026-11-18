@@ -4,6 +4,8 @@ namespace JustNeko.Core.Ai;
 
 public enum ProviderKind
 {
+    /// <summary>桌宠自带的 llama-server + 小模型，由 <see cref="LocalModel.LocalModelManager"/> 下载和启动。</summary>
+    BuiltIn,
     Ollama,
     OpenAICompatible,
     Demo,
@@ -19,7 +21,10 @@ public sealed record ModelEndpoint(ProviderKind Kind, string BaseUrl, string Mod
 {
     public const string OllamaBaseUrl = "http://localhost:11434/v1";
 
-    public bool NeedsConnection => Kind != ProviderKind.Demo;
+    public const string BuiltInModel = "neko-local";
+
+    /// <summary>需要用户自己填地址和模型的服务。</summary>
+    public bool IsExternal => Kind is ProviderKind.Ollama or ProviderKind.OpenAICompatible;
 
     public static ModelEndpoint DefaultFor(ProviderKind kind) =>
         new(kind, kind == ProviderKind.Ollama ? OllamaBaseUrl : "", "");

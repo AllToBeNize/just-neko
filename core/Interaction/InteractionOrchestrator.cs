@@ -26,11 +26,16 @@ public sealed class InteractionOrchestrator(
 
     public bool IsBusy => _current is not null;
 
+    /// <summary>勿扰：只接受用户自己发起的交互，习惯、看屏幕、Agent 发起的一律拒绝。</summary>
+    public bool QuietMode { get; set; }
+
     public long? CurrentId => _current?.Id;
 
     /// <summary>发起一次交互。正在进行的交互优先级更高时返回 false；否则先停掉它再开始。</summary>
     public bool Submit(InteractionRequest request)
     {
+        if (QuietMode && request.Source != InteractionSource.User)
+            return false;
         if (_current is { } running)
         {
             if (running.Request.Priority > request.Priority)
@@ -58,6 +63,14 @@ public sealed class InteractionOrchestrator(
         _history.Clear();
     }
 
+    /// <summary>启动时恢复上次保存的近期对话，让模型接着之前的话题聊。</summary>
+    public void RestoreHistory(IEnumerable<(string User, string Assistant)> turns)
+    {
+        _history.Clear();
+        foreach (var (user, assistant) in turns)
+            _history.AddTurn(user, assistant);
+    }
+
     private async Task RunAsync(Run run)
     {
         Emit(run, new InteractionStarted(run.Id, run.Request));
@@ -68,11 +81,10 @@ public sealed class InteractionOrchestrator(
             kind = route.Endpoint.Kind;
             if (run.Ended)
                 return;
-            if (route.Key != _historyRoute)
-            {
+            // 换了服务或模型就从头聊；启动后第一次（含恢复的历史）沿用已有的对话。
+            if (_historyRoute is not null && route.Key != _historyRoute)
                 _history.Clear();
-                _historyRoute = route.Key;
-            }
+            _historyRoute = route.Key;
 
             var messages = PromptBuilder.Build(rolePrompt(), emotionNames(), _history.Messages, run.Request.Text);
             var parser = new DirectiveParser(Directives);

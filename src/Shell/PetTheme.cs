@@ -25,6 +25,28 @@ internal static class PetTheme
         return box;
     }
 
+    public static readonly Color Good = new("8fd19e");
+
+    /// <summary>说明文字：浅色、自动换行。</summary>
+    public static Label Note(string text, int fontSize = 13)
+    {
+        var label = Label(text, Muted, fontSize);
+        label.AutowrapMode = TextServer.AutowrapMode.WordSmart;
+        return label;
+    }
+
+    public static Button PrimaryButton(string name, string text)
+    {
+        var button = new Button { Name = name, Text = text, CustomMinimumSize = new Vector2(84, 34) };
+        button.AddThemeStyleboxOverride("normal", Box(Accent, 10, 12, 4));
+        button.AddThemeStyleboxOverride("hover", Box(new Color("ffdda9"), 10, 12, 4));
+        button.AddThemeStyleboxOverride("pressed", Box(new Color("e9ae73"), 10, 12, 4));
+        button.AddThemeStyleboxOverride("disabled", Box(Surface, 10, 12, 4));
+        foreach (var state in new[] { "font_color", "font_hover_color", "font_pressed_color", "font_focus_color" })
+            button.AddThemeColorOverride(state, Background);
+        return button;
+    }
+
     public static Label Label(string text, Color color, int fontSize = 15)
     {
         var label = new Label { Text = text };

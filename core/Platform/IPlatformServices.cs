@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace JustNeko.Core.Platform;
 
 /// <summary>
@@ -8,10 +10,24 @@ public interface IPlatformServices
 {
     string Name { get; }
 
-    /// <summary>系统设置的双击间隔，用来区分单击和双击。</summary>
-    TimeSpan DoubleClickTime { get; }
+    /// <summary>放大文件（内置模型、运行时）的目录。Windows 上是 %LOCALAPPDATA%\JustNeko，不随漫游配置同步。</summary>
+    string LocalDataDirectory { get; }
 
     ISecretStore Secrets { get; }
+
+    /// <summary>不在任务栏显示这个窗口的按钮（角色、聊天、气泡这类常驻小窗）。</summary>
+    void HideFromTaskbar(long windowHandle);
+
+    /// <summary>
+    /// 直接让系统隐藏 / 显示一个窗口（Godot 不允许隐藏主窗口）。不支持时返回 false，调用方自己想办法（比如移到屏幕外）。
+    /// </summary>
+    bool SetWindowShown(long windowHandle, bool shown);
+
+    /// <summary>前台是不是有全屏程序（游戏、演示）。</summary>
+    bool IsFullscreenAppActive();
+
+    /// <summary>让子进程跟着桌宠一起退出，桌宠崩溃时也不留下孤儿进程。</summary>
+    void TieToProcessLifetime(Process process);
 }
 
 /// <summary>凭据存储。Windows 用 DPAPI；以后 macOS 用钥匙串、Linux 用 libsecret。</summary>
@@ -32,14 +48,27 @@ public static class PlatformServices
         OperatingSystem.IsWindows() ? new WindowsPlatform(dataDirectory) : new GenericPlatform();
 }
 
-/// <summary>还没有专门实现的平台：功能都能用，Key 只留在内存里。</summary>
+/// <summary>还没有专门实现的平台：功能都能用，Key 只留在内存里，任务栏和全屏相关的能力先不生效。</summary>
 public sealed class GenericPlatform : IPlatformServices
 {
     public string Name => "generic";
 
-    public TimeSpan DoubleClickTime => TimeSpan.FromMilliseconds(500);
+    public string LocalDataDirectory { get; } =
+        Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "JustNeko");
 
     public ISecretStore Secrets { get; } = new MemorySecretStore();
+
+    public void HideFromTaskbar(long windowHandle)
+    {
+    }
+
+    public bool SetWindowShown(long windowHandle, bool shown) => false;
+
+    public bool IsFullscreenAppActive() => false;
+
+    public void TieToProcessLifetime(Process process)
+    {
+    }
 }
 
 public sealed class MemorySecretStore : ISecretStore

@@ -11,9 +11,12 @@ public static class ModelErrors
         ClientResultException { Status: 401 or 403 } => "模型服务拒绝了请求。请检查 API Key。",
         ClientResultException { Status: 404 } => "服务上找不到这个模型或接口。请检查服务地址和模型名。",
         ClientResultException { Status: > 0 } result => $"模型服务返回 HTTP {result.Status}。请检查地址、模型和 Key。",
-        ClientResultException or HttpRequestException => kind == ProviderKind.Ollama
-            ? "连不上本地 Ollama。请确认 Ollama 已经启动，或在设置里换一个服务。"
-            : "连不上模型服务。请检查网络和服务地址。",
+        ClientResultException or HttpRequestException => kind switch
+        {
+            ProviderKind.Ollama => "连不上本地 Ollama。请确认 Ollama 已经启动，或在设置中心里换一个服务。",
+            ProviderKind.BuiltIn => "内置本地模型没有响应。可以在设置中心的「本地模型」里看看状态。",
+            _ => "连不上模型服务。请检查网络和服务地址。",
+        },
         JsonException => "模型返回了无法解析的流式数据。",
         var other => other.Message,
     };

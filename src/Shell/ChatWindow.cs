@@ -6,11 +6,14 @@ namespace JustNeko.Shell;
 /// <summary>聊天记录和输入框。只负责显示和收集输入，回复由交互编排器产生。</summary>
 public partial class ChatWindow : Window
 {
-    private const int ComposerWidth = 238;
+    private const int ComposerWidth = 262;
+    private const string Placeholder = "和 Neko 聊一句…";
+    private const int ExpandedWidth = 330;
+    private const int ExpandedHeight = 460;
     private const int ComposerHeight = 45;
     private const int TranscriptHeight = 142;
     private const int ChatSpacing = 6;
-    private const int RowLimit = 16;
+    private const int RowLimit = ChatHistoryStore.EntryLimit;
     private readonly InteractionOrchestrator _interactions;
     private readonly Dictionary<long, Label> _replies = [];
     private PanelContainer _transcript = null!;
@@ -18,13 +21,19 @@ public partial class ChatWindow : Window
     private VBoxContainer _messages = null!;
     private LineEdit _input = null!;
     private Button _send = null!;
+    private Button _expand = null!;
+    private Button _historyToggle = null!;
+    private bool _expanded;
     private Rect2I _petBounds;
     private Rect2I _screenArea;
 
     internal event Action? Opened;
     internal event Action? Closed;
 
-    internal static int LeftExtent(int petWidth) => Math.Max(0, ComposerWidth + petWidth / 5 - petWidth / 2);
+    /// <summary>窗口位置或大小变了（展开记录、跟着角色移动），气泡借此避开它。</summary>
+    internal event Action? LayoutChanged;
+
+    internal Rect2I Bounds => new(Position, Size);
 
     internal ChatWindow(InteractionOrchestrator interactions)
     {
@@ -82,16 +91,27 @@ public partial class ChatWindow : Window
             Closed?.Invoke();
     }
 
+    /// <summary>显示上次保存的聊天记录。</summary>
+    internal void LoadHistory(IEnumerable<ChatEntry> entries)
+    {
+        foreach (var entry in entries)
+            AddMessage(entry.Speaker == ChatEntry.User ? "你" : "Neko", ReplyText.ForEntry(entry));
+        ResizeChat();
+    }
+
     /// <summary>清掉显示的聊天记录。对话上下文由编排器清。</summary>
     internal void ClearTranscript()
     {
         _replies.Clear();
+        _expanded = false;
+        _expand.Text = "展开";
         foreach (var row in _messages.GetChildren())
         {
             _messages.RemoveChild(row);
             row.QueueFree();
         }
         _transcript.Hide();
+        _historyToggle.SetPressedNoSignal(false);
         ResizeChat();
     }
 
@@ -113,8 +133,21 @@ public partial class ChatWindow : Window
             CustomMinimumSize = new Vector2(0, TranscriptHeight),
         };
         _transcript.AddThemeStyleboxOverride("panel", PetTheme.Box(PetTheme.Background, 15, 11, 9));
-        _scroll = new ScrollContainer { HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled };
-        _transcript.AddChild(_scroll);
+        var layout = new VBoxContainer();
+        layout.AddThemeConstantOverride("separation", 4);
+        _transcript.AddChild(layout);
+        var header = new HBoxContainer();
+        var title = PetTheme.Label("聊天记录", PetTheme.Muted, 11);
+        title.SizeFlagsHorizontal = Control.SizeFlags.ExpandFill;
+        header.AddChild(title);
+        _expand = new Button { Name = "ExpandHistory", Text = "展开", Flat = true, FocusMode = Control.FocusModeEnum.None, TooltipText = "展开看完整的聊天记录" };
+        _expand.AddThemeFontSizeOverride("font_size", 11);
+        _expand.AddThemeColorOverride("font_color", PetTheme.Accent);
+        _expand.Pressed += ToggleExpanded;
+        header.AddChild(_expand);
+        layout.AddChild(header);
+        _scroll = new ScrollContainer { HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled, SizeFlagsVertical = Control.SizeFlags.ExpandFill };
+        layout.AddChild(_scroll);
         _messages = new VBoxContainer { SizeFlagsHorizontal = Control.SizeFlags.ExpandFill };
         _messages.AddThemeConstantOverride("separation", 9);
         _scroll.AddChild(_messages);
@@ -153,7 +186,7 @@ public partial class ChatWindow : Window
         _input = new LineEdit
         {
             Name = "MessageInput",
-            PlaceholderText = "和 Neko 聊一句…",
+            PlaceholderText = Placeholder,
             SizeFlagsHorizontal = Control.SizeFlags.ExpandFill,
             CustomMinimumSize = new Vector2(0, 33),
         };
@@ -174,7 +207,41 @@ public partial class ChatWindow : Window
         close.AddThemeStyleboxOverride("normal", new StyleBoxEmpty());
         close.Pressed += Dismiss;
         fields.AddChild(close);
+        fields.MoveChild(BuildHistoryToggle(), 0);
         return composer;
+    }
+
+    // 默认只有一个输入框，回复在角色头顶的气泡里说；想翻之前的对话再点「≡」展开记录。
+    private Button BuildHistoryToggle()
+    {
+        _historyToggle = new Button
+        {
+            Name = "ToggleHistory",
+            Text = "≡",
+            TooltipText = "聊天记录",
+            ToggleMode = true,
+            FocusMode = Control.FocusModeEnum.None,
+            CustomMinimumSize = new Vector2(28, 32),
+        };
+        _historyToggle.AddThemeStyleboxOverride("normal", new StyleBoxEmpty());
+        _historyToggle.AddThemeStyleboxOverride("pressed", PetTheme.Box(PetTheme.Surface, 10));
+        _historyToggle.AddThemeColorOverride("font_pressed_color", PetTheme.Accent);
+        _historyToggle.Toggled += ShowHistory;
+        _input.GetParent().AddChild(_historyToggle);
+        return _historyToggle;
+    }
+
+    private void ShowHistory(bool shown)
+    {
+        _transcript.Visible = shown;
+        if (!shown && _expanded)
+        {
+            _expanded = false;
+            _expand.Text = "展开";
+        }
+        ResizeChat();
+        ScrollToLatest();
+        _input.GrabFocus();
     }
 
     private void SendOrCancel()
@@ -199,9 +266,8 @@ public partial class ChatWindow : Window
         {
             case InteractionStarted started:
                 _replies[started.InteractionId] = AddMessage("Neko", ReplyText.Waiting);
-                _transcript.Show();
-                ResizeChat();
                 ScrollToLatest();
+                _input.PlaceholderText = "Neko 在说话…";
                 _send.Text = "停止";
                 break;
             case ReplyUpdated updated:
@@ -211,7 +277,10 @@ public partial class ChatWindow : Window
                 SetReply(ended.InteractionId, ReplyText.ForEnded(ended));
                 _replies.Remove(ended.InteractionId);
                 if (!_interactions.IsBusy)
+                {
                     _send.Text = "发送";
+                    _input.PlaceholderText = Placeholder;
+                }
                 if (Visible)
                     _input.GrabFocus();
                 break;
@@ -234,13 +303,24 @@ public partial class ChatWindow : Window
 
     private void ScrollToBottom() => _scroll.ScrollVertical = (int)_scroll.GetVScrollBar().MaxValue;
 
+    private void ToggleExpanded()
+    {
+        _expanded = !_expanded;
+        _expand.Text = _expanded ? "收起" : "展开";
+        ResizeChat();
+        ScrollToLatest();
+    }
+
     private void ResizeChat()
     {
-        var historyRoom = _petBounds.Size.Y * 3 / 4 - _petBounds.Size.Y / 16 - ComposerHeight / 2 - ChatSpacing - 8;
-        var historyHeight = Math.Clamp(historyRoom, 48, TranscriptHeight);
+        var composerBottom = _petBounds.Position.Y + _petBounds.Size.Y * 3 / 4 + ComposerHeight / 2;
+        var historyRoom = _expanded
+            ? Math.Min(ExpandedHeight, composerBottom - _screenArea.Position.Y - ComposerHeight - ChatSpacing - 8)
+            : _petBounds.Size.Y * 3 / 4 - _petBounds.Size.Y / 16 - ComposerHeight / 2 - ChatSpacing - 8;
+        var historyHeight = Math.Clamp(historyRoom, 72, _expanded ? ExpandedHeight : TranscriptHeight);
         _transcript.CustomMinimumSize = new Vector2(0, historyHeight);
         var height = ComposerHeight + (_transcript.Visible ? historyHeight + ChatSpacing : 0);
-        var size = new Vector2I(ComposerWidth, height);
+        var size = new Vector2I(_expanded && _transcript.Visible ? ExpandedWidth : ComposerWidth, height);
         if (size != Size)
             Size = size;
         PlaceChat();
@@ -259,5 +339,6 @@ public partial class ChatWindow : Window
         var next = ScreenMath.ClampToScreen(new Vector2I(x, y), Size, _screenArea);
         if (next != Position)
             Position = next;
+        LayoutChanged?.Invoke();
     }
 }

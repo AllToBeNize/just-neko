@@ -16,6 +16,7 @@ internal sealed class BehaviorCatalog
     public const string WaitingForReply = "WaitingForReply";
     public const string Replying = "Replying";
     public const string ReplyFinished = "ReplyFinished";
+    public const string Petted = "Petted";
 
     private readonly List<PetBehaviorSlot> _slots =
     [
@@ -26,6 +27,7 @@ internal sealed class BehaviorCatalog
         new(WaitingForReply, "等待回复", true),
         new(Replying, "回复中", true),
         new(ReplyFinished, "回复完成", false),
+        new(Petted, "被摸头", false),
     ];
 
     public IReadOnlyList<PetBehaviorSlot> Slots => _slots;
