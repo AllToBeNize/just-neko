@@ -42,6 +42,7 @@ dotnet build
 | `core/Platform` | `IPlatformServices`：凭据存储、隐藏任务栏按钮、隐藏窗口、全屏检测、子进程跟随退出。Windows 已实现；其他平台先用通用实现（Key 只留在内存、窗口挪到屏幕外），以后补 macOS 钥匙串、Linux libsecret |
 | `src/Pet` | `PetAvatar` 渲染角色；`BehaviorCatalog` 登记行为槽；`PetMotionDirector` 按优先级决定播哪个动作（拖动 > 一次性反应 > 交互阶段 > 自主活动 > 待机） |
 | `src/Pet/Activities` | 自主活动框架：`IPetActivity` + `ActivityDirector` |
+| `src/Pet` 角色后端 | `PetAvatar` 是角色后端的基类（表情、动作、命中判断、通用层姿态），`Live2DAvatar` 和 `Vrm/VrmAvatar` 各实现一份；`Characters` 列出可选角色并按设置创建。VRM 端：`VrmExpressions` 按权重叠加 VRM 表情，`VrmPoser` 每帧改骨骼姿态（垂手、呼吸、看向、倾斜） |
 | `src/Pet/Rig` | 通用层，和角色格式无关：`LookAtCursor` 看鼠标、`DragSway` 拖动晃动（弹簧阻尼）、`TextMouth` 按文字节奏对口型（以后换成按语音音量），合成 `AvatarPose`（看向、倾斜、张嘴）。`Live2DRig` 把它叠加到 Live2D 参数上：默认用标准参数，嘴型读 model3.json 的 `LipSync` 分组，不符合标准的角色在模型目录放 `rig.json` 覆盖映射 |
 | `src/Shell` | 主场景 `DesktopPet`（组装各模块、鼠标操作、窗口跟随、显示和隐藏）、`TrayIcon` 托盘、`OnboardingWindow` 首次引导、聊天窗口、气泡和头顶小标记 |
 | `src/Shell/Settings` | 设置中心 `SettingsCenter` 和六个分页；加一页就是写一个 `SettingsPage` 子类，在 `SettingsCenter` 里登记 |
@@ -74,6 +75,14 @@ dotnet build
 - **工具插件**通过 MCP 接入。用官方 C# SDK 连接玩家配置的本地进程或远端 HTTP 服务，读取工具列表和输入结构。插件设置显示工具用途、启用状态和所需权限。应用按会话提供工具，并在调用前核对权限。外部工具进程单独运行，连接所需凭据由用户配置。 [MCP C# SDK](https://github.com/modelcontextprotocol/csharp-sdk) · [本地和远端传输方式](https://github.com/modelcontextprotocol/csharp-sdk/blob/main/docs/concepts/transports/transports.md)
 
 建议用「把番茄钟剩余时间告诉我」验收首个插件。模型选择一个只读查询，应用检查后执行，将结果交给模型继续流式回答。鼠标交互和定时习惯继续由本地规则触发，能依据结果做表情或播放动作。
+
+## 角色：Live2D 和 VRM
+
+在「设置中心 → 角色」里选角色，点「立即重启」后生效。两种格式共用同一套互动、表情、看鼠标、拖动晃动和对口型。
+
+- **Live2D**：模型放在 `Models/`（见下一节），表情和动作来自模型文件。
+- **VRM（3D）**：把 `.vrm` 放进 `Models/vrm/`，用 Godot 编辑器打开一次项目就会自动导入（插件 [godot-vrm](https://github.com/V-Sekai/godot-vrm)，固定在 `e15199f9`，MIT）。表情用 VRM 标准表情（开心、生气、难过、放松、惊讶，Live2D 常用的 curious / shy / sleepy 会自动映射过去），口型用 `aa`；VRM 没有动作文件，待机时手臂自然垂下、呼吸、眨眼都由程序生成。头发衣服靠模型自带的弹簧骨骼摆动。试用的示例角色是 pixiv 的 `VRM1_Constraint_Twist_Sample.vrm`（允许商用、再分发和修改），和 Live2D 模型一样不进仓库。
+- godot-vrm 对「节点约束」（袖子、关节扭转）的导入不可靠，会把袖子算回水平，所以加载时移除约束节点，由程序带着袖子跟手臂走；对普通 VRoid 模型没有影响。运行时直接加载 `.vrm`（不经编辑器导入）在这个版本的插件上还有问题，用户自己放入的角色以后再支持。
 
 ## Live2D（可选）
 

@@ -28,11 +28,13 @@ public sealed partial class SettingsCenter : Window
         ChatPage = new ChatPage(services);
         ChatPage.LocalModelRequested += () => Open(LocalModel);
         PrivacyPage = new PrivacyPage(services);
+        CharacterPage = new CharacterPage(services);
+        CharacterPage.RestartRequested += () => RestartRequested?.Invoke();
         _pages =
         [
             (Chat, "对话", ChatPage),
             (LocalModel, "本地模型", new LocalModelPage(services)),
-            (Character, "角色", new CharacterPage(services)),
+            (Character, "角色", CharacterPage),
             (Behavior, "行为", new BehaviorPage(services)),
             (Privacy, "隐私", PrivacyPage),
             (About, "关于", new AboutPage()),
@@ -42,6 +44,11 @@ public sealed partial class SettingsCenter : Window
     internal ChatPage ChatPage { get; }
 
     internal PrivacyPage PrivacyPage { get; }
+
+    internal CharacterPage CharacterPage { get; }
+
+    /// <summary>换了角色，用户要求立即重启。</summary>
+    internal event Action? RestartRequested;
 
     public override void _Ready()
     {

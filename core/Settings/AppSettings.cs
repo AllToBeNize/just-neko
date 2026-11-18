@@ -20,6 +20,9 @@ public sealed record AppSettings
 
     public string RolePrompt { get; init; } = DefaultRolePrompt;
 
+    /// <summary>用哪个角色："live2d" 或 "vrm:res://Models/vrm/xxx.vrm"。切换后重启生效。</summary>
+    public string Character { get; init; } = "live2d";
+
     /// <summary>前台有全屏程序（游戏、演示）时自动藏起角色。</summary>
     public bool HideWhenFullscreen { get; init; } = true;
 

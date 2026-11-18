@@ -9,6 +9,9 @@ public sealed partial class CharacterPage : SettingsPage
     private readonly PetServices _services;
     private readonly PetMotion[] _motions;
 
+    /// <summary>换了角色，用户点了「立即重启」。</summary>
+    internal event Action? RestartRequested;
+
     internal CharacterPage(PetServices services)
     {
         _services = services;
@@ -19,6 +22,7 @@ public sealed partial class CharacterPage : SettingsPage
     public override void _Ready()
     {
         AddHeading("角色");
+        AddCharacterSelector();
         var appearance = _services.Appearance;
         var row = new HBoxContainer();
         var label = PetTheme.Label("人物大小", PetTheme.Muted, 13);
@@ -54,9 +58,35 @@ public sealed partial class CharacterPage : SettingsPage
         };
         AddChild(expand);
         AddChild(advanced);
-        advanced.AddChild(PetTheme.Note("给每个状态选一段模型自带的动作。一般不用改；做新角色时在这里调。", 12));
+        advanced.AddChild(PetTheme.Note(_motions.Length == 0
+            ? "这个角色没有动作文件，待机、呼吸、眨眼和反应都由程序生成。"
+            : "给每个状态选一段模型自带的动作。一般不用改；做新角色时在这里调。", 12));
         foreach (var slot in _services.Behaviors.Slots)
             AddMotionField(advanced, slot);
+    }
+
+    private void AddCharacterSelector()
+    {
+        var settings = _services.Settings;
+        var options = Characters.Available();
+        var selector = new OptionButton { Name = "CharacterSelect", SizeFlagsHorizontal = SizeFlags.ExpandFill, CustomMinimumSize = new Vector2(0, 32) };
+        foreach (var option in options)
+            selector.AddItem(option.Label);
+        var current = settings.Current.Character;
+        selector.Select(Math.Max(0, options.ToList().FindIndex(option => option.Id == current)));
+        AddChild(selector);
+        var note = PetTheme.Note("换角色要重启 Just Neko 才生效。VRM 角色放在 Models/vrm 下，用编辑器打开一次项目就会自动导入。", 12);
+        AddChild(note);
+        var restart = PetTheme.PrimaryButton("RestartNow", "立即重启");
+        restart.SizeFlagsHorizontal = SizeFlags.ShrinkBegin;
+        restart.Visible = false;
+        restart.Pressed += () => RestartRequested?.Invoke();
+        AddChild(restart);
+        selector.ItemSelected += index =>
+        {
+            settings.Update(settings.Current with { Character = options[(int)index].Id });
+            restart.Visible = options[(int)index].Id != current;
+        };
     }
 
     private void AddMotionField(VBoxContainer fields, PetBehaviorSlot slot)

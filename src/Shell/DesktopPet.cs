@@ -76,7 +76,9 @@ public partial class DesktopPet : Control, IPetBody
         var localModel = new LocalModelManager(platform, Path.Combine(dataDirectory, "logs"));
         var models = new ModelRouter(_settings, localModel);
 
-        _pet = new PetAvatar { Name = "Pet", MouseFilter = MouseFilterEnum.Stop };
+        _pet = Characters.Create(_settings.Current.Character);
+        _pet.Name = "Pet";
+        _pet.MouseFilter = MouseFilterEnum.Stop;
         AddChild(_pet);
         _pet.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
         _pet.GuiInput += OnPetInput;
@@ -118,6 +120,7 @@ public partial class DesktopPet : Control, IPetBody
         _settingsCenter = new SettingsCenter(_services);
         _settingsCenter.ChatPage.ConnectionVerified += OnConnectionVerified;
         _settingsCenter.PrivacyPage.HistoryCleared += ClearConversation;
+        _settingsCenter.RestartRequested += Restart;
         AddChild(_settingsCenter);
         _onboarding = new OnboardingWindow(_services);
         _onboarding.CloudRequested += () => _settingsCenter.Open(SettingsCenter.Chat);
@@ -425,6 +428,13 @@ public partial class DesktopPet : Control, IPetBody
         _pet.SetMood("neutral");
         _motions.Release(InteractionLayer);
         _motions.ClearOneShot();
+    }
+
+    // 换角色后重启：从自己这里拉起一个新进程（仍在用户的桌面会话里），再退出当前进程。
+    private void Restart()
+    {
+        OS.CreateProcess(OS.GetExecutablePath(), OS.GetCmdlineArgs());
+        Quit();
     }
 
     private void Quit()
